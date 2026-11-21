@@ -293,7 +293,25 @@ export function getTests() {
         });
         await app.page.waitForSelector('aside[aria-label="Artifact and Files Pane"]', 3000);
 
-        // 4. ArtifactPane: cycle through all 5 tabs & toggle Source/Rendered
+        // 4. ArtifactPane: verify resizable handle + Widen/Restore button + cycle through all 5 tabs
+        const paneBefore = await app.page.evaluate(() => {
+          const pane = document.querySelector('aside[aria-label="Artifact and Files Pane"]');
+          const sep = document.querySelector('[role="separator"][aria-label="Resize Auxiliary Pane"]');
+          const sideSep = document.querySelector('[role="separator"][aria-label="Resize Sidebar"]');
+          const widenBtn = document.querySelector('button[aria-label="Widen pane"]');
+          if (!pane || !sep || !sideSep || !widenBtn) return null;
+          const before = pane.getBoundingClientRect().width;
+          widenBtn.click();
+          return before;
+        });
+        assert.ok(paneBefore, 'Expected ArtifactPane & Sidebar resize separators and Widen pane button');
+        await new Promise((r) => setTimeout(r, 50));
+        const paneAfter = await app.page.evaluate(() => {
+          const pane = document.querySelector('aside[aria-label="Artifact and Files Pane"]');
+          return pane ? pane.getBoundingClientRect().width : 0;
+        });
+        assert.ok(paneAfter > paneBefore, 'Widen pane button must widen ArtifactPane');
+
         for (const label of ['Changes', 'Subagents', 'Tasks', 'Files', 'Artifacts']) {
           await app.page.evaluate((tabLabel) => {
             const pane = document.querySelector('aside[aria-label="Artifact and Files Pane"]');

@@ -15,6 +15,8 @@ import {
   Bot,
   Terminal,
   ExternalLink,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
 import { useConversationStore } from '../stores/conversationStore';
@@ -60,6 +62,38 @@ export function ArtifactPane() {
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [paneError, setPaneError] = useState<string | null>(null);
+  const [paneWidth, setPaneWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return 420;
+    const saved = Number(window.localStorage.getItem('supergravity.artifactPaneWidth'));
+    return Number.isFinite(saved) && saved >= 280 ? saved : 420;
+  });
+
+  const clampPaneWidth = (w: number) => {
+    const maxW =
+      typeof window !== 'undefined' ? Math.max(320, Math.min(980, window.innerWidth - 360)) : 980;
+    return Math.max(280, Math.min(maxW, w));
+  };
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = clampPaneWidth(paneWidth);
+    const onMove = (ev: MouseEvent) => {
+      const next = clampPaneWidth(startW + (startX - ev.clientX));
+      setPaneWidth(next);
+      try {
+        window.localStorage.setItem('supergravity.artifactPaneWidth', String(next));
+      } catch {
+        // ignore storage errors
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   useEffect(() => {
     setBrowsingDir(null);
@@ -170,11 +204,30 @@ export function ArtifactPane() {
     activeArtifact?.title.toLowerCase().endsWith('.html') ||
     activeArtifact?.language === 'html-widget';
 
+  const effectiveWidth = clampPaneWidth(paneWidth);
+
   return (
     <aside
       aria-label="Artifact and Files Pane"
-      className="w-80 lg:w-[420px] flex-shrink-0 border-l border-gray-800/80 bg-[#0d121c] flex flex-col h-full min-w-0"
+      style={{ width: `${effectiveWidth}px` }}
+      className="relative flex-shrink-0 border-l border-gray-800/80 bg-[#0d121c] flex flex-col h-full min-w-[280px] max-w-[75vw]"
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize Auxiliary Pane"
+        title="Drag to resize (double-click to reset)"
+        onMouseDown={startResize}
+        onDoubleClick={() => {
+          setPaneWidth(420);
+          try {
+            window.localStorage.setItem('supergravity.artifactPaneWidth', '420');
+          } catch {
+            // ignore
+          }
+        }}
+        className="absolute left-0 top-0 bottom-0 w-1.5 -ml-0.5 cursor-col-resize hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors z-30"
+      />
       {/* Header */}
       <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-gray-800/80 gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -224,6 +277,27 @@ export function ArtifactPane() {
               </button>
             </>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              const next = effectiveWidth >= 600 ? 420 : clampPaneWidth(720);
+              setPaneWidth(next);
+              try {
+                window.localStorage.setItem('supergravity.artifactPaneWidth', String(next));
+              } catch {
+                // ignore
+              }
+            }}
+            className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded transition-colors"
+            aria-label={effectiveWidth >= 600 ? 'Restore pane width' : 'Widen pane'}
+            title={effectiveWidth >= 600 ? 'Restore width' : 'Widen pane'}
+          >
+            {effectiveWidth >= 600 ? (
+              <Minimize2 className="w-3.5 h-3.5" />
+            ) : (
+              <Maximize2 className="w-3.5 h-3.5" />
+            )}
+          </button>
           <button
             type="button"
             onClick={handleRefresh}

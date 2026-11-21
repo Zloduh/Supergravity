@@ -64,6 +64,38 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const [addingSchedule, setAddingSchedule] = useState(false);
   const [schedPrompt, setSchedPrompt] = useState('');
   const [schedCron, setSchedCron] = useState('0 9 * * *');
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === 'undefined') return 288;
+    const saved = Number(window.localStorage.getItem('supergravity.sidebarWidth'));
+    return Number.isFinite(saved) && saved >= 220 ? saved : 288;
+  });
+
+  const clampSidebarWidth = (w: number) => {
+    const maxW =
+      typeof window !== 'undefined' ? Math.max(260, Math.min(520, Math.floor(window.innerWidth * 0.45))) : 520;
+    return Math.max(220, Math.min(maxW, w));
+  };
+
+  const startSidebarResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = clampSidebarWidth(sidebarWidth);
+    const onMove = (ev: MouseEvent) => {
+      const next = clampSidebarWidth(startW + (ev.clientX - startX));
+      setSidebarWidth(next);
+      try {
+        window.localStorage.setItem('supergravity.sidebarWidth', String(next));
+      } catch {
+        // ignore storage errors
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
   const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
     projects: true,
     conversations: true,
@@ -323,8 +355,25 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   return (
     <aside
       aria-label="Sidebar"
-      className="w-64 sm:w-72 flex-shrink-0 h-full bg-[#0d121c] border-r border-gray-800/80 flex flex-col z-20"
+      style={{ width: `${clampSidebarWidth(sidebarWidth)}px` }}
+      className="relative flex-shrink-0 h-full bg-[#0d121c] border-r border-gray-800/80 flex flex-col z-20"
     >
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize Sidebar"
+        title="Drag to resize (double-click to reset)"
+        onMouseDown={startSidebarResize}
+        onDoubleClick={() => {
+          setSidebarWidth(288);
+          try {
+            window.localStorage.setItem('supergravity.sidebarWidth', '288');
+          } catch {
+            // ignore
+          }
+        }}
+        className="absolute right-0 top-0 bottom-0 w-1.5 -mr-0.5 cursor-col-resize hover:bg-blue-500/50 active:bg-blue-500/70 transition-colors z-30"
+      />
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800/80">
         <div className="flex items-center gap-2.5 min-w-0">
