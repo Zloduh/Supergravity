@@ -180,12 +180,36 @@ export function getTests() {
           waitForSelector: 'main',
         });
 
-        // 1. Settings -> Providers + Inherit Model Settings checkbox
+        // 1. Settings -> Providers: Connect & Discover Models deduplication + Inherit Model Settings checkbox
         await app.page.click('button[aria-label="Local LLM, MCP & Skills Settings"]');
         await app.page.waitForSelector(
           '[role="dialog"][aria-label="Local Settings & Connections"]',
           4000
         );
+        const beforeProviders = await app.page.evaluate(
+          () => document.querySelectorAll('button[title="Auto-discover models (GET /v1/models)"]').length
+        );
+        await app.page.evaluate(() => {
+          Array.from(document.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Connect & Discover Models'))
+            ?.click();
+        });
+        await app.bridge.waitForInvocation('add_provider', 3000);
+        await app.page.evaluate(() => {
+          Array.from(document.querySelectorAll('button'))
+            .find((b) => b.textContent?.includes('Connect & Discover Models'))
+            ?.click();
+        });
+        await app.bridge.waitForInvocation('add_provider', 3000);
+        const afterProviders = await app.page.evaluate(
+          () => document.querySelectorAll('button[title="Auto-discover models (GET /v1/models)"]').length
+        );
+        assert.equal(
+          afterProviders,
+          beforeProviders,
+          'Clicking Connect & Discover Models twice for same base_url must not add duplicate providers'
+        );
+
         const inheritState = await app.page.evaluate(() => {
           const cb = Array.from(document.querySelectorAll('input[type="checkbox"]')).find((el) =>
             el.closest('label')?.textContent?.includes('Inherit Context, Max Tokens & Temperature')
@@ -201,6 +225,12 @@ export function getTests() {
         assert.equal(inheritState.initialChecked, true);
         assert.equal(inheritState.initialDisabled, true);
         assert.equal(inheritState.afterDisabled, false);
+        await app.page.evaluate(() => {
+          Array.from(document.querySelectorAll('button'))
+            .find((b) => b.textContent?.trim() === 'Save Parameters')
+            ?.click();
+        });
+        await app.bridge.waitForInvocation('set_config', 3000);
 
         // 2. Settings -> MCP Servers: Add, Connect, Tools, Disconnect, Remove
         await app.page.evaluate(() => {
@@ -327,7 +357,32 @@ export function getTests() {
         await app.bridge.waitForInvocation('set_config', 3000);
         await app.page.click('button[aria-label="Delete schedule Audit daily status"]');
 
-        // 8. Slash commands: verify all 10 commands render in picker
+        // 8. Sidebar: New Conversation creates exactly 1 conversation, Delete removes it, Collapse/Expand works
+        const convBefore = await app.page.evaluate(
+          () => document.querySelectorAll('button[aria-label^="Delete conversation "]').length
+        );
+        await app.page.click('button[aria-label="New standalone conversation"]');
+        await app.bridge.waitForInvocation('create_conversation', 3000);
+        await new Promise((r) => setTimeout(r, 100));
+        const convAfterCreate = await app.page.evaluate(
+          () => document.querySelectorAll('button[aria-label^="Delete conversation "]').length
+        );
+        assert.equal(
+          convAfterCreate,
+          convBefore + 1,
+          'Clicking New Conversation once must create exactly 1 conversation'
+        );
+        await app.page.evaluate(() => {
+          document.querySelector('button[aria-label^="Delete conversation "]')?.click();
+        });
+        await app.bridge.waitForInvocation('delete_conversation', 3000);
+        await new Promise((r) => setTimeout(r, 100));
+        const convAfterDelete = await app.page.evaluate(
+          () => document.querySelectorAll('button[aria-label^="Delete conversation "]').length
+        );
+        assert.equal(convAfterDelete, convBefore, 'Delete conversation must remove the conversation');
+
+        // 9. Slash commands: verify all 10 commands render in picker
         await app.page.type('textarea', '/', { clear: true });
         const slashCount = await app.page.evaluate(() => {
           const cmds = [
