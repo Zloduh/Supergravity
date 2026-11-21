@@ -110,6 +110,7 @@ function makeDefaultConfig() {
       temperature: 0.7,
       timeout_seconds: 120,
       searxng_url: null,
+      inherit_model_settings: true,
     },
     mcp: {
       servers: [],

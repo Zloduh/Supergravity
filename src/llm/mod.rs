@@ -101,14 +101,23 @@ pub struct ToolFunction {
 pub struct ChatCompletionRequest {
     pub model: String,
     pub messages: Vec<ChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub presence_penalty: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
 }
 
@@ -685,6 +694,21 @@ impl LLMProviderManager {
         };
 
         for m in &mut models_resp.data {
+            if m.context_length.is_none() {
+                if let Some(ctx) = m
+                    .meta
+                    .as_ref()
+                    .and_then(|meta| {
+                        meta.get("context_length")
+                            .or_else(|| meta.get("ctx_size"))
+                            .or_else(|| meta.get("n_ctx"))
+                            .or_else(|| meta.get("max_context_length"))
+                    })
+                    .and_then(|v| v.as_u64())
+                {
+                    m.context_length = Some(ctx as u32);
+                }
+            }
             if m.name.is_empty() {
                 if let Some(label) = m
                     .meta
@@ -726,17 +750,22 @@ impl LLMProviderManager {
                 .unwrap_or_else(|| "coder-iq1_m".to_string());
         }
 
-        if request.temperature.is_none() {
-            request.temperature = llm_cfg.temperature;
-        }
+        if llm_cfg.inherit_model_settings {
+            // Inherit model's own context length, max_tokens, and temperature configured on Strata/provider
+            // by omitting explicit overrides unless the caller passed them directly.
+        } else {
+            if request.temperature.is_none() {
+                request.temperature = llm_cfg.temperature;
+            }
 
-        if request.max_tokens.is_none() {
-            request.max_tokens = llm_cfg.max_tokens;
-        }
+            if request.max_tokens.is_none() {
+                request.max_tokens = llm_cfg.max_tokens;
+            }
 
-        if let Some(ctx) = llm_cfg.context_length {
-            let cap = ctx.max(1);
-            request.max_tokens = Some(request.max_tokens.map(|m| m.min(cap)).unwrap_or(cap));
+            if let Some(ctx) = llm_cfg.context_length {
+                let cap = ctx.max(1);
+                request.max_tokens = Some(request.max_tokens.map(|m| m.min(cap)).unwrap_or(cap));
+            }
         }
 
         let timeout = Duration::from_secs(llm_cfg.timeout_seconds.unwrap_or(120).max(1));
@@ -1256,6 +1285,7 @@ mod tests {
             }];
             c.llm.active_provider = Some("mock".to_string());
             c.llm.default_model = Some("custom-default".to_string());
+            c.llm.inherit_model_settings = false;
             c.llm.temperature = Some(0.35);
             c.llm.max_tokens = Some(8192);
             c.llm.context_length = Some(2048);

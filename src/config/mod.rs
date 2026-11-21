@@ -32,6 +32,7 @@ pub struct LLMConfig {
     pub temperature: Option<f32>,
     pub timeout_seconds: Option<u64>,
     pub searxng_url: Option<String>,
+    pub inherit_model_settings: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -342,6 +343,7 @@ impl Default for LLMConfig {
             temperature: Some(0.7),
             timeout_seconds: Some(120),
             searxng_url: None,
+            inherit_model_settings: true,
         }
     }
 }

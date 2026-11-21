@@ -70,6 +70,7 @@ export function SettingsModal() {
   const [temperature, setTemperature] = useState(0.7);
   const [timeoutSeconds, setTimeoutSeconds] = useState(120);
   const [searxngUrl, setSearxngUrl] = useState('');
+  const [inheritModelSettings, setInheritModelSettings] = useState(true);
 
   // Add MCP Server form state
   const [mcpName, setMcpName] = useState('');
@@ -119,6 +120,7 @@ export function SettingsModal() {
       setTemperature(cfg.llm.temperature ?? 0.7);
       setTimeoutSeconds(cfg.llm.timeout_seconds ?? 120);
       setSearxngUrl(cfg.llm.searxng_url ?? '');
+      setInheritModelSettings(cfg.llm.inherit_model_settings ?? true);
 
       setMaxIterations(cfg.agent.max_iterations ?? 50);
       setMaxSubagents(cfg.agent.max_subagents ?? 10);
@@ -202,6 +204,7 @@ export function SettingsModal() {
         temperature,
         timeout_seconds: timeoutSeconds,
         searxng_url: searxngUrl.trim() ? searxngUrl.trim() : null,
+        inherit_model_settings: inheritModelSettings,
       },
     });
   };
@@ -578,18 +581,30 @@ export function SettingsModal() {
               </form>
 
               <div className="p-4 rounded-lg border border-gray-800 bg-gray-950/50 space-y-3">
-                <h3 className="text-sm font-medium text-white">
-                  Inference & Search Parameters
-                </h3>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h3 className="text-sm font-medium text-white">
+                    Inference & Search Parameters
+                  </h3>
+                  <label className="flex items-center gap-2 text-xs text-indigo-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={inheritModelSettings}
+                      onChange={(e) => setInheritModelSettings(e.target.checked)}
+                      className="rounded border-gray-700 bg-gray-900 text-indigo-500"
+                    />
+                    Inherit Context, Max Tokens & Temperature from Strata / Provider
+                  </label>
+                </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div>
                     <label className="block text-xs text-gray-400 mb-1">Context Length</label>
                     <input
                       aria-label="Context Length"
                       type="number"
+                      disabled={inheritModelSettings}
                       value={contextLength}
                       onChange={(e) => setContextLength(Number(e.target.value))}
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white disabled:opacity-45"
                     />
                   </div>
                   <div>
@@ -597,9 +612,10 @@ export function SettingsModal() {
                     <input
                       aria-label="Max Tokens"
                       type="number"
+                      disabled={inheritModelSettings}
                       value={maxTokens}
                       onChange={(e) => setMaxTokens(Number(e.target.value))}
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white disabled:opacity-45"
                     />
                   </div>
                   <div>
@@ -610,9 +626,10 @@ export function SettingsModal() {
                       step="0.1"
                       min="0"
                       max="2"
+                      disabled={inheritModelSettings}
                       value={temperature}
                       onChange={(e) => setTemperature(Number(e.target.value))}
-                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white"
+                      className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded text-sm text-white disabled:opacity-45"
                     />
                   </div>
                   <div>

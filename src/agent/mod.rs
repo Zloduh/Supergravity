@@ -1385,8 +1385,16 @@ impl AgentEngineInner {
             let llm_request = ChatCompletionRequest {
                 model: chosen_model,
                 messages: llm_messages,
-                temperature: llm_config.temperature.or(Some(0.7)),
-                max_tokens: llm_config.max_tokens.or(Some(4096)),
+                temperature: if llm_config.inherit_model_settings {
+                    None
+                } else {
+                    llm_config.temperature
+                },
+                max_tokens: if llm_config.inherit_model_settings {
+                    None
+                } else {
+                    llm_config.max_tokens
+                },
                 stream: Some(agent_config.enable_streaming),
                 tools: if tool_defs.is_empty() { None } else { Some(tool_defs.clone()) },
                 tool_choice: None,
@@ -1581,26 +1589,33 @@ impl AgentEngineInner {
             // Execute each tool call
             let tool_timeout = std::time::Duration::from_secs(agent_config.tool_timeout_seconds.max(1));
             for tc in tool_calls {
-                let args: serde_json::Value =
-                    serde_json::from_str(&tc.function.arguments).unwrap_or(serde_json::json!({}));
-                let tool_fut = self.execute_tool(
-                    &conversation_id,
-                    conversation.workspace_path.as_deref(),
-                    &tc.function.name,
-                    args,
-                );
-                let result_str = if tc.function.name == "ask_question"
-                    || (tc.function.name == "run_command" && agent_config.require_command_approval)
-                {
-                    tool_fut.await
-                } else {
-                    match tokio::time::timeout(tool_timeout, tool_fut).await {
-                        Ok(res) => res,
-                        Err(_) => format!(
-                            "Tool '{}' timed out after {} seconds.",
-                            tc.function.name,
-                            agent_config.tool_timeout_seconds
-                        ),
+                let parsed_args = serde_json::from_str::<serde_json::Value>(&tc.function.arguments);
+                let result_str = match parsed_args {
+                    Err(parse_err) => format!(
+                        "Error: Invalid or truncated JSON arguments for tool '{}' (likely hit max_tokens while generating a large payload). Split large writes into smaller write_file + Append=true chunks or increase max_tokens in Settings. Parse error: {}",
+                        tc.function.name, parse_err
+                    ),
+                    Ok(args) => {
+                        let tool_fut = self.execute_tool(
+                            &conversation_id,
+                            conversation.workspace_path.as_deref(),
+                            &tc.function.name,
+                            args,
+                        );
+                        if tc.function.name == "ask_question"
+                            || (tc.function.name == "run_command"
+                                && agent_config.require_command_approval)
+                        {
+                            tool_fut.await
+                        } else {
+                            match tokio::time::timeout(tool_timeout, tool_fut).await {
+                                Ok(res) => res,
+                                Err(_) => format!(
+                                    "Tool '{}' timed out after {} seconds.",
+                                    tc.function.name, agent_config.tool_timeout_seconds
+                                ),
+                            }
+                        }
                     }
                 };
 
@@ -1667,6 +1682,9 @@ impl AgentEngineInner {
         let result = match name {
             "read_file" => {
                 let path = args.get("Path").or_else(|| args.get("path")).and_then(|v| v.as_str()).unwrap_or("");
+                if path.trim().is_empty() {
+                    return "Error: Missing required 'Path' argument for read_file.".to_string();
+                }
                 if let Err(e) = self.check_file_boundary(conversation_id, workspace_path, path).await {
                     return e;
                 }
@@ -1690,6 +1708,9 @@ impl AgentEngineInner {
             }
             "write_file" => {
                 let path = args.get("Path").or_else(|| args.get("path")).and_then(|v| v.as_str()).unwrap_or("");
+                if path.trim().is_empty() {
+                    return "Error: Missing required 'Path' argument for write_file.".to_string();
+                }
                 if let Err(e) = self.check_file_boundary(conversation_id, workspace_path, path).await {
                     return e;
                 }
@@ -1729,6 +1750,20 @@ impl AgentEngineInner {
                     Ok((mut msg, final_content)) => {
                         self.record_file_change(conversation_id, path, orig, final_content.clone())
                             .await;
+                        let has_artifact_meta = args.get("ArtifactMetadata").is_some();
+                        let is_plan_or_artifact = has_artifact_meta
+                            || path.ends_with("/plan.md")
+                            || path.ends_with("/task.md")
+                            || path.ends_with("/walkthrough.md");
+                        if is_plan_or_artifact {
+                            let brain_dir = Self::brain_dir(conversation_id);
+                            if !path.starts_with(&brain_dir.to_string_lossy().to_string()) {
+                                if let Some(fname) = std::path::Path::new(path).file_name() {
+                                    let _ = tokio::fs::create_dir_all(&brain_dir).await;
+                                    let _ = tokio::fs::write(brain_dir.join(fname), &final_content).await;
+                                }
+                            }
+                        }
                         let req_feedback = args
                             .get("ArtifactMetadata")
                             .and_then(|m| m.get("RequestFeedback"))
@@ -1783,6 +1818,9 @@ impl AgentEngineInner {
             }
             "edit_file" => {
                 let path = args.get("Path").or_else(|| args.get("path")).and_then(|v| v.as_str()).unwrap_or("");
+                if path.trim().is_empty() {
+                    return "Error: Missing required 'Path' argument for edit_file.".to_string();
+                }
                 if let Err(e) = self.check_file_boundary(conversation_id, workspace_path, path).await {
                     return e;
                 }

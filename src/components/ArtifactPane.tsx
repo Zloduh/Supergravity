@@ -59,9 +59,20 @@ export function ArtifactPane() {
     artifactPaneOpen,
     activeConversationId,
     activeWorkspace,
+    activeConversation?.messages.length,
+    activeConversation?.files_changed?.length,
     fetchArtifacts,
     fetchWorkspaceFiles,
   ]);
+
+  // Auto-select the first artifact when artifacts populate and nothing is currently selected
+  useEffect(() => {
+    if (!artifactPaneOpen || tab !== 'artifacts') return;
+    if (!activeArtifact && artifacts.length > 0) {
+      const first = artifacts[0];
+      void openFile(first.path, first.name);
+    }
+  }, [artifactPaneOpen, tab, artifacts, activeArtifact]);
 
   if (!artifactPaneOpen) return null;
 

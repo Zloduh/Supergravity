@@ -39,6 +39,7 @@ export interface LLMConfig {
   temperature?: number | null;
   timeout_seconds?: number | null;
   searxng_url?: string | null;
+  inherit_model_settings?: boolean;
 }
 
 export interface MCPServerConfig {
@@ -196,6 +197,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     temperature: 0.7,
     timeout_seconds: 120,
     searxng_url: null,
+    inherit_model_settings: true,
   },
   mcp: {
     servers: [],
