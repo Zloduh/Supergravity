@@ -577,7 +577,17 @@ impl LLMProviderManager {
         self.providers.read().await.get(id).cloned()
     }
 
-    pub async fn add_provider(&self, config: LLMProviderConfig) -> Result<LLMProvider> {
+    pub async fn add_provider(&self, mut config: LLMProviderConfig) -> Result<LLMProvider> {
+        let normalized_url = config.base_url.trim().trim_end_matches('/').to_lowercase();
+        if !normalized_url.is_empty() {
+            let providers = self.providers.read().await;
+            if let Some(existing) = providers
+                .values()
+                .find(|p| p.base_url.trim().trim_end_matches('/').to_lowercase() == normalized_url)
+            {
+                config.id = existing.id.clone();
+            }
+        }
         let provider = Self::config_to_provider(config);
         let id = provider.id.clone();
 

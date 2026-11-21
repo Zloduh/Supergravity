@@ -177,20 +177,24 @@ export function SettingsModal() {
     e.preventDefault();
     setSavingProvider(true);
     try {
-      const id = `${providerType}-${Date.now()}`;
+      const normalizedUrl = baseUrl.trim().replace(/\/+$/, '').toLowerCase();
+      const existing = providers.find(
+        (p) => p.base_url.trim().replace(/\/+$/, '').toLowerCase() === normalizedUrl
+      );
+      const id = existing ? existing.id : `${providerType}-${Date.now()}`;
       const created = await addProvider({
         id,
-        name: name.trim() || 'Local Provider',
+        name: name.trim() || existing?.name || 'Local Provider',
         provider_type: providerType,
         base_url: baseUrl.trim(),
         api_key: apiKey.trim() ? apiKey.trim() : null,
-        models: [],
+        models: existing?.models || [],
         enabled: true,
         headers: null,
       });
       if (created) {
-        await setActiveProvider(id);
-        await refreshProviderModels(id);
+        await setActiveProvider(created.id);
+        await refreshProviderModels(created.id);
       }
     } finally {
       setSavingProvider(false);
