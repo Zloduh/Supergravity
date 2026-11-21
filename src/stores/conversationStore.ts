@@ -315,13 +315,6 @@ export const useConversationStore = create<ConversationState>((set, get) => {
       set({ loading: true, error: null });
       try {
         const conversations = await agentIpc.listConversations();
-        if (conversations.length === 0) {
-          const created = await get().createConversation('New Conversation');
-          if (created) {
-            set({ loading: false });
-            return;
-          }
-        }
         set((state) => {
           const activeId = state.activeConversationId || conversations[0]?.id || null;
           return {
@@ -368,7 +361,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
           ...(worktreeMode ? { worktree_mode: worktreeMode } : {}),
         });
         set((state) => ({
-          conversations: [conversation, ...state.conversations],
+          conversations: upsertConversation(state.conversations, conversation),
           activeConversationId: conversation.id,
           activeConversation: conversation,
           loading: false,
