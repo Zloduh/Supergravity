@@ -723,7 +723,7 @@ export function MainContent() {
           </div>
           <div className="min-w-0">
             <h2 className="font-semibold text-white text-xs sm:text-sm truncate">
-              {activeConversation?.title || 'Antigravity Local'}
+              {activeConversation?.title || 'Supergravity Local'}
             </h2>
             <p className="text-[11px] text-gray-400 truncate">
               {activeConversation?.messages.length || 0} messages

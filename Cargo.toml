@@ -1,8 +1,8 @@
 [package]
-name = "antigravity"
+name = "supergravity"
 version = "0.1.0"
-description = "Antigravity - Agentic AI IDE and Coding Assistant"
-authors = ["Antigravity Team"]
+description = "Supergravity - Local-First Agentic AI IDE and Coding Assistant"
+authors = ["Supergravity Team"]
 edition = "2021"
 license = "Apache-2.0"
 
@@ -11,7 +11,7 @@ name = "antigravity"
 path = "src/lib.rs"
 
 [[bin]]
-name = "antigravity"
+name = "supergravity"
 path = "src/main.rs"
 
 [features]

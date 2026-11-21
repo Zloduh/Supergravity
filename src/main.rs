@@ -35,17 +35,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(subcmd) = args.get(1).map(|s| s.as_str()) {
         match subcmd {
             "--help" | "-h" | "help" => {
-                println!("Antigravity Local (v0.1.0) - Agentic AI IDE & CLI (`agy`)");
+                println!("Supergravity (v0.1.0) - Local-First Agentic AI IDE & CLI");
                 println!("Usage:");
-                println!("  antigravity                        Launch Tauri Desktop App");
-                println!("  antigravity run <prompt>           Run an agent task from the terminal CLI");
-                println!("  antigravity projects               List configured multi-folder Projects");
-                println!("  antigravity skills                 List discovered SKILL.md skills");
-                println!("  antigravity --screenshot <out.png> Capture desktop window screenshot");
+                println!("  supergravity                        Launch Tauri Desktop App");
+                println!("  supergravity run <prompt>           Run an agent task from the terminal CLI");
+                println!("  supergravity projects               List configured multi-folder Projects");
+                println!("  supergravity skills                 List discovered SKILL.md skills");
+                println!("  supergravity --screenshot <out.png> Capture desktop window screenshot");
                 return Ok(());
             }
             "--version" | "-V" => {
-                println!("antigravity 0.1.0");
+                println!("supergravity 0.1.0");
                 return Ok(());
             }
             _ => {}

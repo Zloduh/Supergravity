@@ -146,7 +146,7 @@ function App() {
       <div className="flex h-screen w-screen items-center justify-center bg-[#0b0f17]">
         <div className="flex flex-col items-center gap-4 text-white">
           <div className="w-10 h-10 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm font-medium text-gray-300 tracking-wide">Loading Antigravity…</p>
+          <p className="text-sm font-medium text-gray-300 tracking-wide">Loading Supergravity…</p>
         </div>
       </div>
     );

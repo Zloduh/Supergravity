@@ -155,7 +155,7 @@ const COMMANDS: CommandItem[] = [
   },
   {
     id: 'quit',
-    title: 'Quit Antigravity',
+    title: 'Quit Supergravity',
     description: 'Close the application window',
     category: 'Application',
     icon: Power,

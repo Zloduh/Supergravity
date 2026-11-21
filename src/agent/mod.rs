@@ -909,7 +909,7 @@ impl AgentEngineInner {
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default().to_string_lossy().to_string());
 
         let mut prompt = String::from(
-            "You are Antigravity, an expert local-first agentic AI IDE and coding assistant.\n\
+            "You are Supergravity, an expert local-first agentic AI IDE and coding assistant.\n\
             Use your tools to inspect files, edit code, run commands, search the workspace, and complete tasks accurately.\n",
         );
         prompt.push_str(&format!("\nActive Workspace: {}\n", ws));

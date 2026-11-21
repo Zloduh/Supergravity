@@ -198,7 +198,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <Zap className="w-4 h-4 text-white" />
           </div>
           <span className="font-semibold text-base text-white tracking-tight truncate">
-            Antigravity
+            Supergravity
           </span>
         </div>
         <div className="flex items-center gap-1">

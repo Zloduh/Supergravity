@@ -89,7 +89,7 @@ interface ConversationState {
 
 const DEMO_CONVERSATION: Conversation = {
   id: 'welcome-local',
-  title: 'Welcome to Antigravity Local',
+  title: 'Welcome to Supergravity',
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
   messages: [
@@ -99,7 +99,7 @@ const DEMO_CONVERSATION: Conversation = {
       reasoning_content:
         'Local-first agentic IDE initialized. Checking Strata Local (http://127.0.0.1:47831/v1) and Strata LAN (http://192.168.0.92:47832/v1), plus Ollama/llama.cpp/vLLM/LM Studio, MCP servers, and SKILL.md files.',
       content:
-        'Welcome to **Antigravity Local** — your local-first agentic AI IDE.\n\n- **Strata Defaults**: Pre-configured for **Strata (Local)** (`http://127.0.0.1:47831/v1`, model `coder-iq1_m`) and **Strata (LAN)** (`http://192.168.0.92:47832/v1`), plus Ollama, LM Studio, llama.cpp, and vLLM in **Settings**.\n- **Skills & MCP**: Discovers `SKILL.md` files and `.mcp.json` servers automatically.\n- **Slash Commands**: Type `/plan`, `/compact`, or `/goal` in the chat bar below.',
+        'Welcome to **Supergravity** — your local-first agentic AI IDE.\n\n- **Strata Defaults**: Pre-configured for **Strata (Local)** (`http://127.0.0.1:47831/v1`, model `coder-iq1_m`) and **Strata (LAN)** (`http://192.168.0.92:47832/v1`), plus Ollama, LM Studio, llama.cpp, and vLLM in **Settings**.\n- **Skills & MCP**: Discovers `SKILL.md` files and `.mcp.json` servers automatically.\n- **Slash Commands**: Type `/plan`, `/compact`, or `/goal` in the chat bar below.',
       created_at: new Date().toISOString(),
     },
   ],

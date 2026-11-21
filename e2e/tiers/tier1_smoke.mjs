@@ -16,7 +16,7 @@ export function getTests() {
         });
 
         const titleText = await app.page.evaluate(() => document.body.innerText);
-        assert.ok(titleText.includes('Antigravity'), 'Expected Antigravity header in UI');
+        assert.ok(titleText.includes('Supergravity'), 'Expected Supergravity header in UI');
         assert.ok(
           titleText.includes('Strata (Local)'),
           'Expected Strata (Local) active provider status'
