@@ -189,7 +189,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     addNotification,
   } = useAppStore();
 
-  const { createConversation } = useConversationStore();
+  const { createConversation, activeConversation } = useConversationStore();
 
   const filteredCommands = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -261,7 +261,14 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         break;
       case 'open-file': {
         setArtifactPaneOpen(true);
-        const entries = await fetchWorkspaceFiles(activeWorkspace, false);
+        const activeProj = (config.workspace.projects || []).find(
+          (p) => p.id === config.workspace.active_project_id
+        );
+        const wsPath =
+          activeConversation?.workspace_path ||
+          activeProj?.folders?.[0]?.path ||
+          activeWorkspace;
+        const entries = await fetchWorkspaceFiles(wsPath, false);
         const firstFile = entries.find((e) => !e.is_dir);
         if (firstFile && isTauri()) {
           try {

@@ -51,6 +51,7 @@ export function SettingsModal() {
     disconnectServer,
     setTheme,
     setActiveArtifact,
+    setArtifactPaneOpen,
   } = useAppStore();
 
   const [tab, setTab] = useState<ModalTab>(settingsTab);
@@ -85,6 +86,7 @@ export function SettingsModal() {
   const [skillFilter, setSkillFilter] = useState('');
   const [inspectedSkillContent, setInspectedSkillContent] = useState<{
     name: string;
+    path: string;
     content: string;
   } | null>(null);
 
@@ -249,7 +251,12 @@ export function SettingsModal() {
     }
   };
 
-  const handleInspectSkill = async (skillId: string, skillName: string, loaded: boolean) => {
+  const handleInspectSkill = async (
+    skillId: string,
+    skillName: string,
+    skillPath: string,
+    loaded: boolean
+  ) => {
     if (!loaded) {
       await loadSkill(skillId);
     }
@@ -257,7 +264,7 @@ export function SettingsModal() {
     const md =
       (schema?.parameters as { markdown?: string } | undefined)?.markdown ||
       JSON.stringify(schema || { name: skillName }, null, 2);
-    setInspectedSkillContent({ name: skillName, content: md });
+    setInspectedSkillContent({ name: skillName, path: skillPath, content: md });
   };
 
   const handleSavePreferences = async () => {
@@ -902,9 +909,11 @@ export function SettingsModal() {
                         onClick={() => {
                           setActiveArtifact({
                             title: `${inspectedSkillContent.name}.md`,
+                            path: inspectedSkillContent.path,
                             content: inspectedSkillContent.content,
                             language: 'markdown',
                           });
+                          setArtifactPaneOpen(true);
                           setSettingsOpen(false);
                         }}
                         className="text-xs text-blue-400 hover:text-blue-300 underline"
@@ -962,7 +971,7 @@ export function SettingsModal() {
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         <button
                           type="button"
-                          onClick={() => handleInspectSkill(sk.id, sk.name, sk.loaded)}
+                          onClick={() => handleInspectSkill(sk.id, sk.name, sk.path, sk.loaded)}
                           className="p-1.5 text-gray-400 hover:text-white hover:bg-gray-800 rounded"
                           aria-label={`Inspect ${sk.name}`}
                           title="Inspect SKILL.md"

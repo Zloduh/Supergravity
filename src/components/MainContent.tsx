@@ -560,7 +560,11 @@ export function MainContent() {
       setFileFilter(atMatch[1] || '');
       setShowFilePicker(true);
       if (workspaceFiles.length === 0) {
-        fetchWorkspaceFiles(activeWorkspace, false);
+        const effectiveWs =
+          activeConversation?.workspace_path ||
+          activeProject?.folders?.[0]?.path ||
+          activeWorkspace;
+        fetchWorkspaceFiles(effectiveWs, false);
       }
     } else {
       setShowFilePicker(false);
