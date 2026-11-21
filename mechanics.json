@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "values": [
+    { "name": "window width", "group": "window", "value": 1280, "unit": "px", "estimated": true },
+    { "name": "window height", "group": "window", "value": 800, "unit": "px", "estimated": true },
+    { "name": "min window width", "group": "window", "value": 800, "unit": "px", "estimated": true },
+    { "name": "min window height", "group": "window", "value": 600, "unit": "px", "estimated": true },
+    { "name": "sidebar width", "group": "ui_layout", "value": 280, "unit": "px", "estimated": true },
+    { "name": "background color", "group": "theme", "value": "#111827", "estimated": true },
+    { "name": "surface color", "group": "theme", "value": "#1f2937", "estimated": true },
+    { "name": "primary color", "group": "theme", "value": "#3b82f6", "estimated": true },
+    { "name": "default temperature", "group": "llm", "value": 0.7, "estimated": true },
+    { "name": "default max tokens", "group": "llm", "value": 4096, "unit": "tokens", "estimated": true },
+    { "name": "default context length", "group": "llm", "value": 32768, "unit": "tokens", "estimated": true },
+    { "name": "ollama base url", "group": "llm", "value": "http://127.0.0.1:11434/v1", "estimated": true },
+    { "name": "max agent iterations", "group": "agent", "value": 50, "estimated": true },
+    { "name": "max subagents", "group": "agent", "value": 10, "estimated": true },
+    { "name": "tool timeout", "group": "agent", "value": 60, "unit": "s", "estimated": true },
+    { "name": "streaming enabled", "group": "agent", "value": true, "estimated": true },
+    { "name": "terminal cols", "group": "terminal", "value": 120, "unit": "cols", "estimated": true },
+    { "name": "terminal rows", "group": "terminal", "value": 30, "unit": "rows", "estimated": true },
+    { "name": "terminal scrollback", "group": "terminal", "value": 10000, "unit": "lines", "estimated": true },
+    { "name": "terminal font size", "group": "terminal", "value": 13, "unit": "px", "estimated": true },
+    { "name": "skills auto load", "group": "skills", "value": true, "estimated": true },
+    { "name": "mcp auto connect", "group": "mcp", "value": true, "estimated": true },
+    { "name": "command palette shortcut", "group": "shortcuts", "value": "CmdOrCtrl+Shift+P", "estimated": true },
+    { "name": "toggle terminal shortcut", "group": "shortcuts", "value": "CmdOrCtrl+`", "estimated": true }
+  ]
+}

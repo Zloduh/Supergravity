@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --ag-bg-primary: #0b0f17;
+    --ag-bg-secondary: #111827;
+    --ag-bg-elevated: #1f2937;
+    --ag-border: rgba(55, 65, 81, 0.65);
+    --ag-text-primary: #f9fafb;
+    --ag-text-secondary: #9ca3af;
+    --ag-accent: #3b82f6;
+  }
+
+  html.light {
+    --ag-bg-primary: #f8fafc;
+    --ag-bg-secondary: #ffffff;
+    --ag-bg-elevated: #f1f5f9;
+    --ag-border: rgba(203, 213, 225, 0.9);
+    --ag-text-primary: #0f172a;
+    --ag-text-secondary: #475569;
+    --ag-accent: #2563eb;
+  }
+
+  * {
+    @apply border-gray-800;
+  }
+
+  body {
+    @apply bg-[#0b0f17] text-gray-100 antialiased selection:bg-blue-500/30 selection:text-white;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  html.light body {
+    @apply bg-slate-50 text-slate-900;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-700/70 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-gray-900/85 backdrop-blur-md border border-gray-800/70;
+  }
+
+  .input-base {
+    @apply w-full px-3 py-2 bg-gray-900/90 border border-gray-700/80 rounded-lg text-white
+           placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/60
+           focus:border-blue-500 transition-all;
+  }
+
+  .button-base {
+    @apply px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all
+           focus:outline-none focus:ring-2 focus:ring-blue-500/60
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .button-primary {
+    @apply button-base bg-blue-600 text-white hover:bg-blue-500 shadow-sm shadow-blue-950/50;
+  }
+
+  .button-secondary {
+    @apply button-base bg-gray-800 text-gray-200 hover:bg-gray-700 hover:text-white border border-gray-700/60;
+  }
+
+  .button-danger {
+    @apply button-base bg-red-600/90 text-white hover:bg-red-500;
+  }
+
+  .card {
+    @apply bg-gray-900/60 border border-gray-800 rounded-xl p-4;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

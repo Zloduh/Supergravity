@@ -1,0 +1,121 @@
+[package]
+name = "antigravity"
+version = "0.1.0"
+description = "Antigravity - Agentic AI IDE and Coding Assistant"
+authors = ["Antigravity Team"]
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "antigravity"
+path = "src/lib.rs"
+
+[[bin]]
+name = "antigravity"
+path = "src/main.rs"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+# Tauri v2
+tauri = { version = "2.0", features = [
+    "webview-data-url",
+    "rustls-tls",
+    "tracing",
+    "tray-icon",
+    "uuid",
+] }
+
+# Async runtime
+tokio = { version = "1.40", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+
+# HTTP client for LLM providers
+reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream", "multipart"] }
+
+# File system operations
+walkdir = "2.5"
+ignore = "0.4"
+glob = "0.3"
+globset = "0.4"
+regex = "1"
+
+# Terminal/process management
+tokio-util = { version = "0.7", features = ["full"] }
+libc = "0.2"
+
+# MCP client (stdio/SSE transport support for future implementation)
+# mcp-client = { version = "0.1", features = ["stdio", "sse"] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+tauri-plugin-fs = "2.0"
+tauri-plugin-shell = "2.0"
+tauri-plugin-dialog = "2.0"
+tauri-plugin-clipboard-manager = "2.0"
+tauri-plugin-notification = "2.0"
+tauri-plugin-global-shortcut = "2.0"
+tauri-plugin-updater = "2.0"
+tauri-plugin-positioner = "2.0"
+
+# Configuration
+config = "0.14"
+toml = "0.8"
+directories = "5.0"
+
+# Crypto for API keys
+ring = "0.17"
+zeroize = "1.8"
+
+# UUID
+uuid = { version = "1.8", features = ["v4", "serde", "fast-rng"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Anyhow for error handling
+anyhow = "1.0"
+
+# Thiserror for custom errors
+thiserror = "1.0"
+
+# Parking lot for sync primitives
+parking_lot = "0.12"
+
+# Async channel
+async-channel = "2.3"
+
+# Semver for version parsing
+semver = "1.0"
+
+# URL parsing
+url = "2.5"
+
+# Base64
+base64 = "0.22"
+
+# Hex
+hex = "0.4"
+
+# Notify for file watching
+notify = { version = "6.1", features = ["mio"] }
+
+# Async stream utilities for LLM streaming
+futures-util = "0.3"
+
+[dev-dependencies]
+tempfile = "3.10"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2.0"
+cairo-rs = { version = "0.18", features = ["png"] }

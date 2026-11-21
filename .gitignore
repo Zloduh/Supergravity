@@ -1,0 +1,12 @@
+# Rust / Tauri build artifacts
+/target/
+
+# Node / Frontend build artifacts
+/node_modules/
+/dist/
+
+# Test screenshots & temporary files
+/shots/
+*.log
+*.tmp
+.DS_Store
