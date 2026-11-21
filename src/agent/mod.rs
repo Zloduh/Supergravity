@@ -947,7 +947,11 @@ impl AgentEngineInner {
 
         let mut prompt = String::from(
             "You are Supergravity, an expert local-first agentic AI IDE and coding assistant.\n\
-            Use your tools to inspect files, edit code, run commands, search the workspace, and complete tasks accurately.\n",
+            Use your tools to inspect files, edit code, run commands, search the workspace, and complete tasks accurately.\n\n\
+            Execution & Verification Rules:\n\
+            1. Plan-driven work: If a plan.md or task.md exists (or you create one), execute ONE stage/task at a time in order. After completing and verifying each stage, immediately update plan.md (mark completed items [x] and note status) with edit_file before starting the next stage.\n\
+            2. Skills & Rules: Follow all active rules below. If a task matches an available skill, read its SKILL.md with read_file before acting.\n\
+            3. Honesty & Verification: Only report file paths, symbol names, and test/command results you directly observed in tool output after your final edit.\n",
         );
         prompt.push_str(&format!("\nActive Workspace: {}\n", ws));
         prompt.push_str(&format!("Artifact & Brain Directory: {}\n", brain.to_string_lossy()));
@@ -1344,6 +1348,7 @@ impl AgentEngineInner {
             .await;
         let tool_defs = self.build_tool_definitions(enable_write, enable_mcp).await;
         let effective_provider_id = provider_id.or_else(|| conversation.provider_id.clone());
+        let mut edits_since_plan_update: usize = 0;
 
         for iteration in 0..agent_config.max_iterations {
             // Check cancellation
@@ -1633,13 +1638,26 @@ impl AgentEngineInner {
                         tc.function.name, parse_err
                     ),
                     Ok(args) => {
+                        let target_path = args
+                            .get("Path")
+                            .or_else(|| args.get("path"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let is_interactive_write = tc.function.name == "write_file"
+                            && args
+                                .get("ArtifactMetadata")
+                                .and_then(|m| m.get("RequestFeedback"))
+                                .and_then(|v| v.as_bool())
+                                == Some(true);
                         let tool_fut = self.execute_tool(
                             &conversation_id,
                             conversation.workspace_path.as_deref(),
                             &tc.function.name,
                             args,
                         );
-                        if tc.function.name == "ask_question"
+                        let mut out = if tc.function.name == "ask_question"
+                            || is_interactive_write
                             || (tc.function.name == "run_command"
                                 && agent_config.require_command_approval)
                         {
@@ -1652,7 +1670,33 @@ impl AgentEngineInner {
                                     tc.function.name, agent_config.tool_timeout_seconds
                                 ),
                             }
+                        };
+
+                        if tc.function.name == "write_file" || tc.function.name == "edit_file" {
+                            if target_path.ends_with("plan.md") || target_path.ends_with("task.md")
+                            {
+                                edits_since_plan_update = 0;
+                            } else {
+                                edits_since_plan_update += 1;
+                                if edits_since_plan_update >= 3 {
+                                    let brain_plan =
+                                        AgentEngineInner::brain_dir(&conversation_id).join("plan.md");
+                                    let ws_plan = conversation
+                                        .workspace_path
+                                        .as_deref()
+                                        .map(|w| std::path::PathBuf::from(w).join("plan.md"));
+                                    if brain_plan.is_file()
+                                        || ws_plan.as_ref().is_some_and(|p| p.is_file())
+                                    {
+                                        out.push_str(
+                                            "\n\n[Plan Progress Reminder: plan.md exists and has not been updated after recent code edits. If you finished a stage or task, update plan.md (mark [x] / progress) before moving on.]",
+                                        );
+                                        edits_since_plan_update = 0;
+                                    }
+                                }
+                            }
                         }
+                        out
                     }
                 };
 
@@ -1839,7 +1883,7 @@ impl AgentEngineInner {
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
                                 if approved {
-                                    msg.push_str("\nUser approved the plan (Proceed).");
+                                    msg.push_str("\nUser approved the plan (Proceed). Execute the plan stage-by-stage in order. After completing and verifying each stage, update plan.md (mark completed tasks [x] / progress) before starting the next stage.");
                                 } else {
                                     msg.push_str(&format!(
                                         "\nUser requested changes to the plan: {}",

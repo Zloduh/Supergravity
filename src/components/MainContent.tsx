@@ -658,6 +658,8 @@ export function MainContent() {
       prompt = `Multi-Agent Swarm Mode: Break this objective into parallel workstreams, invoke specialist subagents via invoke_subagent, and synthesize their verified results:\n\n${rest}`;
     } else if (prompt.startsWith('/learn ')) {
       prompt = `Learn Mode (/learn): Persist the following rule, workflow, or setup instruction into .agents/rules/ or a SKILL.md file so future sessions remember it:\n\n${prompt.slice(7)}`;
+    } else if (prompt.startsWith('/schedule ')) {
+      prompt = `Schedule Mode (/schedule): Use the schedule tool to register this recurring cron job or one-shot timer:\n\n${prompt.slice(10)}`;
     } else if (prompt.startsWith('/browser ')) {
       prompt = `Browser Subagent Mode (/browser): Delegate this web/UI task to the browser subagent via invoke_subagent(TypeName="browser"):\n\n${prompt.slice(9)}`;
     }
