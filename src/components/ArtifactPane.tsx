@@ -35,6 +35,7 @@ export function ArtifactPane() {
     artifacts,
     fetchArtifacts,
     activeWorkspace,
+    config,
     workspaceFiles,
     workspaceFilesLoading,
     fetchWorkspaceFiles,
@@ -43,22 +44,38 @@ export function ArtifactPane() {
   const { activeConversationId, activeConversation, setActiveConversation } =
     useConversationStore();
 
+  const projects = config.workspace?.projects || [];
+  const convProject =
+    projects.find((p) => p.id === activeConversation?.project_id) ||
+    projects.find((p) => p.id === config.workspace?.active_project_id) ||
+    null;
+  const effectiveWorkspace =
+    activeConversation?.workspace_path ||
+    convProject?.folders?.[0]?.path ||
+    activeWorkspace;
+
   const [tab, setTab] = useState<AuxTab>('artifacts');
+  const [browsingDir, setBrowsingDir] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'rendered' | 'source'>('rendered');
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
   const [paneError, setPaneError] = useState<string | null>(null);
 
   useEffect(() => {
+    setBrowsingDir(null);
+  }, [effectiveWorkspace, activeConversationId]);
+
+  useEffect(() => {
     if (!artifactPaneOpen) return;
     if (activeConversationId) {
       fetchArtifacts(activeConversationId);
     }
-    fetchWorkspaceFiles(activeWorkspace, false);
+    fetchWorkspaceFiles(browsingDir || effectiveWorkspace, false);
   }, [
     artifactPaneOpen,
     activeConversationId,
-    activeWorkspace,
+    effectiveWorkspace,
+    browsingDir,
     activeConversation?.messages.length,
     activeConversation?.files_changed?.length,
     fetchArtifacts,
@@ -143,7 +160,7 @@ export function ArtifactPane() {
     if (activeConversationId) {
       fetchArtifacts(activeConversationId);
     }
-    fetchWorkspaceFiles(activeWorkspace, false);
+    fetchWorkspaceFiles(browsingDir || effectiveWorkspace, false);
   };
 
   const isMarkdown =
@@ -332,11 +349,27 @@ export function ArtifactPane() {
       )}
 
       {tab === 'files' && (
-        <div className="max-h-40 overflow-y-auto border-b border-gray-800/80 bg-gray-950/30 p-2 space-y-0.5 flex-shrink-0">
+        <div className="max-h-44 overflow-y-auto border-b border-gray-800/80 bg-gray-950/30 p-2 space-y-0.5 flex-shrink-0">
+          <div className="flex items-center justify-between px-2 py-0.5 text-[10px] text-gray-500">
+            <span className="truncate font-mono" title={browsingDir || effectiveWorkspace}>
+              {browsingDir || effectiveWorkspace}
+            </span>
+            {browsingDir && (
+              <button
+                type="button"
+                onClick={() => setBrowsingDir(null)}
+                className="text-blue-400 hover:text-blue-300 ml-2 flex-shrink-0"
+              >
+                Root
+              </button>
+            )}
+          </div>
           {workspaceFilesLoading ? (
             <p className="text-xs text-gray-500 px-2 py-1">Loading workspace files…</p>
           ) : workspaceFiles.length === 0 ? (
-            <p className="text-xs text-gray-500 px-2 py-1">No files listed in {activeWorkspace}</p>
+            <p className="text-xs text-gray-500 px-2 py-1">
+              No files listed in {browsingDir || effectiveWorkspace}
+            </p>
           ) : (
             workspaceFiles.map((entry) => (
               <button
@@ -344,7 +377,7 @@ export function ArtifactPane() {
                 type="button"
                 onClick={() => {
                   if (entry.is_dir) {
-                    fetchWorkspaceFiles(entry.path, false);
+                    setBrowsingDir(entry.path);
                   } else {
                     openFile(entry.path, entry.name);
                   }

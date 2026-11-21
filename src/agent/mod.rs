@@ -588,32 +588,69 @@ impl AgentEngine {
 
     pub async fn list_artifacts(&self, conversation_id: &str) -> Result<Vec<ArtifactInfo>> {
         let dir = AgentEngineInner::brain_dir(conversation_id);
-        if !dir.exists() {
-            return Ok(vec![]);
-        }
         let mut out = Vec::new();
-        let mut entries = tokio::fs::read_dir(&dir).await?;
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            let path = entry.path();
-            if path.is_file() {
-                let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-                if name == "metadata.json" || name == "transcript.jsonl" {
-                    continue;
-                }
-                if let Ok(meta) = entry.metadata().await {
-                    let modified: DateTime<Utc> = meta
-                        .modified()
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                        .into();
-                    out.push(ArtifactInfo {
-                        name,
-                        path: path.to_string_lossy().to_string(),
-                        size: meta.len(),
-                        updated_at: modified.to_rfc3339(),
-                    });
+        let mut seen_names = std::collections::HashSet::new();
+
+        if dir.exists() {
+            let mut entries = tokio::fs::read_dir(&dir).await?;
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+                if path.is_file() {
+                    let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                    if name == "metadata.json" || name == "transcript.jsonl" {
+                        continue;
+                    }
+                    if let Ok(meta) = entry.metadata().await {
+                        let modified: DateTime<Utc> = meta
+                            .modified()
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                            .into();
+                        seen_names.insert(name.clone());
+                        out.push(ArtifactInfo {
+                            name,
+                            path: path.to_string_lossy().to_string(),
+                            size: meta.len(),
+                            updated_at: modified.to_rfc3339(),
+                        });
+                    }
                 }
             }
         }
+
+        // Also surface plan.md / task.md / walkthrough.md from the conversation's workspace
+        // when they were written directly to the project folder.
+        let ws_path = self
+            .inner
+            .conversations
+            .read()
+            .await
+            .get(conversation_id)
+            .and_then(|c| c.workspace_path.clone());
+        if let Some(ws) = ws_path {
+            let ws_dir = PathBuf::from(ws);
+            for fname in ["plan.md", "task.md", "walkthrough.md"] {
+                if seen_names.contains(fname) {
+                    continue;
+                }
+                let candidate = ws_dir.join(fname);
+                if candidate.is_file() {
+                    if let Ok(meta) = tokio::fs::metadata(&candidate).await {
+                        let modified: DateTime<Utc> = meta
+                            .modified()
+                            .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                            .into();
+                        seen_names.insert(fname.to_string());
+                        out.push(ArtifactInfo {
+                            name: fname.to_string(),
+                            path: candidate.to_string_lossy().to_string(),
+                            size: meta.len(),
+                            updated_at: modified.to_rfc3339(),
+                        });
+                    }
+                }
+            }
+        }
+
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(out)
     }
