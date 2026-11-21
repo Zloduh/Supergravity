@@ -56,6 +56,11 @@ export function ProjectModal() {
   const [defaultWorktreeMode, setDefaultWorktreeMode] = useState<WorktreeMode>('local');
   const [systemPrompt, setSystemPrompt] = useState('');
   const [allowedPathsInput, setAllowedPathsInput] = useState('');
+  const [fileAccessPolicy, setFileAccessPolicy] = useState('inherit');
+  const [internetAccessPolicy, setInternetAccessPolicy] = useState('inherit');
+  const [sandboxOverride, setSandboxOverride] = useState<'inherit' | 'enabled' | 'disabled'>(
+    'inherit'
+  );
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,6 +82,15 @@ export function ProjectModal() {
       setDefaultWorktreeMode(editingProject.settings.default_worktree_mode || 'local');
       setSystemPrompt(editingProject.settings.system_prompt || '');
       setAllowedPathsInput((editingProject.settings.allowed_paths || []).join(', '));
+      setFileAccessPolicy(editingProject.settings.file_access_policy || 'inherit');
+      setInternetAccessPolicy(editingProject.settings.internet_access_policy || 'inherit');
+      setSandboxOverride(
+        editingProject.settings.sandbox_enabled === true
+          ? 'enabled'
+          : editingProject.settings.sandbox_enabled === false
+            ? 'disabled'
+            : 'inherit'
+      );
       setFolderPathInput('');
       setSshHostInput('');
     } else {
@@ -91,6 +105,9 @@ export function ProjectModal() {
       setDefaultWorktreeMode('local');
       setSystemPrompt('');
       setAllowedPathsInput('');
+      setFileAccessPolicy('inherit');
+      setInternetAccessPolicy('inherit');
+      setSandboxOverride('inherit');
     }
   }, [projectModalOpen, editingProject, activeWorkspace]);
 
@@ -208,6 +225,11 @@ export function ProjectModal() {
                 ? true
                 : editingProject.settings.require_command_approval ?? null,
             allowed_paths: allowedPaths,
+            file_access_policy: fileAccessPolicy === 'inherit' ? null : fileAccessPolicy,
+            internet_access_policy:
+              internetAccessPolicy === 'inherit' ? null : internetAccessPolicy,
+            sandbox_enabled:
+              sandboxOverride === 'inherit' ? null : sandboxOverride === 'enabled',
           },
         });
         setActiveWorktreeMode(defaultWorktreeMode);
@@ -223,6 +245,11 @@ export function ProjectModal() {
             system_prompt: systemPrompt.trim() || null,
             require_command_approval: permissionPreset === 'always_ask' ? true : null,
             allowed_paths: allowedPaths,
+            file_access_policy: fileAccessPolicy === 'inherit' ? null : fileAccessPolicy,
+            internet_access_policy:
+              internetAccessPolicy === 'inherit' ? null : internetAccessPolicy,
+            sandbox_enabled:
+              sandboxOverride === 'inherit' ? null : sandboxOverride === 'enabled',
           },
         });
         if (created) {
@@ -505,6 +532,58 @@ export function ProjectModal() {
                   <option value="new_worktree">
                     New Worktree Mode (Isolated Git worktree per conversation)
                   </option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  File Access Override
+                </label>
+                <select
+                  aria-label="Project File Access Policy"
+                  value={fileAccessPolicy}
+                  onChange={(e) => setFileAccessPolicy(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-gray-950 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="inherit">Inherit Global</option>
+                  <option value="allow">Allow</option>
+                  <option value="ask">Ask</option>
+                  <option value="deny">Deny</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  Internet Access Override
+                </label>
+                <select
+                  aria-label="Project Internet Access Policy"
+                  value={internetAccessPolicy}
+                  onChange={(e) => setInternetAccessPolicy(e.target.value)}
+                  className="w-full px-3 py-1.5 bg-gray-950 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="inherit">Inherit Global</option>
+                  <option value="allow">Allow</option>
+                  <option value="ask">Ask</option>
+                  <option value="deny">Deny</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-300 mb-1">
+                  Sandbox Override
+                </label>
+                <select
+                  aria-label="Project Sandbox Mode"
+                  value={sandboxOverride}
+                  onChange={(e) =>
+                    setSandboxOverride(e.target.value as 'inherit' | 'enabled' | 'disabled')
+                  }
+                  className="w-full px-3 py-1.5 bg-gray-950 border border-gray-700 rounded-lg text-xs text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="inherit">Inherit Global</option>
+                  <option value="enabled">Enabled</option>
+                  <option value="disabled">Disabled</option>
                 </select>
               </div>
             </div>

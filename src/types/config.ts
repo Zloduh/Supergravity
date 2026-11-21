@@ -122,6 +122,9 @@ export interface ProjectSettings {
   system_prompt?: string | null;
   require_command_approval?: boolean | null;
   allowed_paths: string[];
+  file_access_policy?: string | null;
+  internet_access_policy?: string | null;
+  sandbox_enabled?: boolean | null;
 }
 
 export interface ProjectConfig {

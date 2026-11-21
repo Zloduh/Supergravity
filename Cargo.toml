@@ -1,6 +1,6 @@
 [package]
 name = "supergravity"
-version = "0.1.0"
+version = "0.1.1"
 description = "Supergravity - Local-First Agentic AI IDE and Coding Assistant"
 authors = ["Supergravity Team"]
 edition = "2021"

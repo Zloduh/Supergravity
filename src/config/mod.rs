@@ -257,6 +257,9 @@ pub struct ProjectSettings {
     pub system_prompt: Option<String>,
     pub require_command_approval: Option<bool>,
     pub allowed_paths: Vec<String>,
+    pub file_access_policy: Option<String>,
+    pub internet_access_policy: Option<String>,
+    pub sandbox_enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]

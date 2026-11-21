@@ -186,6 +186,7 @@ struct BackgroundCommandTask {
     child: Arc<Mutex<Option<Child>>>,
 }
 
+#[derive(Clone)]
 pub struct AgentEngine {
     inner: AgentEngineInner,
 }
@@ -654,6 +655,126 @@ impl AgentEngine {
         out.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         Ok(out)
     }
+
+    pub fn start_scheduler(&self) {
+        let engine = AgentEngine {
+            inner: self.inner.clone(),
+        };
+        tokio::spawn(async move {
+            let mut last_fired: HashMap<String, String> = HashMap::new();
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(30));
+            loop {
+                ticker.tick().await;
+                let cfg = engine.inner.config.get().await;
+                if cfg.workspace.scheduled_tasks.is_empty() {
+                    continue;
+                }
+                let now = chrono::Local::now();
+                let minute_key = now.format("%Y-%m-%dT%H:%M").to_string();
+                for task in cfg.workspace.scheduled_tasks {
+                    if !task.enabled {
+                        continue;
+                    }
+                    let Some(expr) = task.cron_expression.as_deref() else {
+                        continue;
+                    };
+                    if last_fired.get(&task.id).map(|k| k.as_str()) == Some(minute_key.as_str()) {
+                        continue;
+                    }
+                    if cron_matches(expr, &now) {
+                        last_fired.insert(task.id.clone(), minute_key.clone());
+                        let eng = engine.clone();
+                        let prompt = task.prompt.clone();
+                        let proj_id = task.project_id.clone();
+                        tokio::spawn(async move {
+                            let _ = eng
+                                .start_agent_task(StartAgentTaskRequest {
+                                    conversation_id: None,
+                                    prompt: format!("[Scheduled Cron Task] {}", prompt),
+                                    system_prompt: None,
+                                    provider_id: None,
+                                    model: None,
+                                    workspace_path: None,
+                                    project_id: proj_id,
+                                    worktree_mode: None,
+                                })
+                                .await;
+                        });
+                    }
+                }
+            }
+        });
+    }
+}
+
+fn spawn_delayed_agent_task(
+    inner: AgentEngineInner,
+    secs: u64,
+    conversation_id: String,
+    prompt: String,
+) {
+    let engine_clone = AgentEngine { inner };
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(secs.max(1))).await;
+        let _ = engine_clone
+            .start_agent_task(StartAgentTaskRequest {
+                conversation_id: Some(conversation_id),
+                prompt: format!("[Scheduled Timer Fired] {}", prompt),
+                system_prompt: None,
+                provider_id: None,
+                model: None,
+                workspace_path: None,
+                project_id: None,
+                worktree_mode: None,
+            })
+            .await;
+    });
+}
+
+fn cron_field_matches(field: &str, value: u32) -> bool {
+    let field = field.trim();
+    if field == "*" {
+        return true;
+    }
+    for part in field.split(',') {
+        let part = part.trim();
+        if let Some(step_str) = part.strip_prefix("*/") {
+            if let Ok(step) = step_str.parse::<u32>() {
+                if step > 0 && value % step == 0 {
+                    return true;
+                }
+            }
+        } else if let Some((start_s, end_s)) = part.split_once('-') {
+            if let (Ok(start), Ok(end)) = (start_s.parse::<u32>(), end_s.parse::<u32>()) {
+                if value >= start && value <= end {
+                    return true;
+                }
+            }
+        } else if let Ok(exact) = part.parse::<u32>() {
+            if value == exact {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn cron_matches(expr: &str, now: &chrono::DateTime<chrono::Local>) -> bool {
+    use chrono::{Datelike, Timelike};
+    let parts: Vec<&str> = expr.split_whitespace().collect();
+    if parts.len() != 5 {
+        return false;
+    }
+    let minute = now.minute();
+    let hour = now.hour();
+    let day = now.day();
+    let month = now.month();
+    let weekday = now.weekday().num_days_from_sunday();
+    cron_field_matches(parts[0], minute)
+        && cron_field_matches(parts[1], hour)
+        && cron_field_matches(parts[2], day)
+        && cron_field_matches(parts[3], month)
+        && cron_field_matches(parts[4], weekday)
 }
 
 impl AgentEngineInner {
@@ -827,7 +948,17 @@ impl AgentEngineInner {
             return Err("Access to ~/.ssh is blocked by Antigravity security policy.".to_string());
         }
         let agent_cfg = self.config.get_agent_config().await;
-        let policy = agent_cfg.non_workspace_file_access.to_lowercase();
+        let conv_opt = self.conversations.read().await.get(conversation_id).cloned();
+        let proj_opt = match conv_opt.as_ref() {
+            Some(c) => self.resolve_conversation_project(c).await,
+            None => None,
+        };
+        let policy = proj_opt
+            .as_ref()
+            .and_then(|p| p.settings.file_access_policy.as_deref())
+            .filter(|s| !s.is_empty() && *s != "inherit")
+            .unwrap_or(agent_cfg.non_workspace_file_access.as_str())
+            .to_lowercase();
         if policy == "allow" || policy.is_empty() {
             return Ok(());
         }
@@ -2063,7 +2194,47 @@ impl AgentEngineInner {
             "search_web" => {
                 let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 let domain = args.get("domain").and_then(|v| v.as_str());
-                self.execute_search_web(query, domain).await
+                let agent_cfg = self.config.get_agent_config().await;
+                let conv_opt = self.conversations.read().await.get(conversation_id).cloned();
+                let proj_opt = match conv_opt.as_ref() {
+                    Some(c) => self.resolve_conversation_project(c).await,
+                    None => None,
+                };
+                let net_policy = proj_opt
+                    .as_ref()
+                    .and_then(|p| p.settings.internet_access_policy.as_deref())
+                    .filter(|s| !s.is_empty() && *s != "inherit")
+                    .unwrap_or(agent_cfg.internet_access_policy.as_str())
+                    .to_lowercase();
+                if net_policy == "deny" {
+                    "Blocked: internet_access_policy is set to 'deny'.".to_string()
+                } else if net_policy == "ask" {
+                    let approval_id = Uuid::new_v4().to_string();
+                    let (tx, rx) = oneshot::channel();
+                    self.pending_approvals.lock().await.insert(approval_id.clone(), tx);
+                    if let Some(handle) = self.app_handle.read().await.as_ref() {
+                        let _ = handle.emit(
+                            "agent-command-approval",
+                            serde_json::json!({
+                                "approval_id": approval_id,
+                                "conversation_id": conversation_id,
+                                "command": format!("search_web: {}", query),
+                                "working_dir": workspace_path.unwrap_or("."),
+                            }),
+                        );
+                    }
+                    let approved = matches!(
+                        tokio::time::timeout(std::time::Duration::from_secs(120), rx).await,
+                        Ok(Ok(true))
+                    );
+                    if !approved {
+                        "Web search rejected by user (internet_access_policy = ask).".to_string()
+                    } else {
+                        self.execute_search_web(query, domain).await
+                    }
+                } else {
+                    self.execute_search_web(query, domain).await
+                }
             }
             "define_subagent" => {
                 let name = args.get("Name").and_then(|v| v.as_str()).unwrap_or("custom").to_string();
@@ -2144,6 +2315,14 @@ impl AgentEngineInner {
                     created_at: Utc::now().to_rfc3339(),
                 });
                 let _ = self.config.set(full_cfg).await;
+                if let Some(secs) = dur_secs {
+                    spawn_delayed_agent_task(
+                        self.clone(),
+                        secs,
+                        conversation_id.to_string(),
+                        prompt.to_string(),
+                    );
+                }
                 format!(
                     "Scheduled task '{}' created (cron={:?}, duration_seconds={:?})",
                     sched_id, cron_expr, dur_secs

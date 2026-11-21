@@ -170,6 +170,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize file watcher
     let fs_watcher = FileWatcher::new()?;
 
+    agent_engine.start_scheduler();
+
     let app_state = AppState {
         config: config.clone(),
         llm_providers,

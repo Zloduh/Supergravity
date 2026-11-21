@@ -442,6 +442,7 @@ async fn agent_engine_synchronous_user_message_scoped_provider_and_brain_isolati
             system_prompt: Some("Always test both frontend and backend.".to_string()),
             require_command_approval: None,
             allowed_paths: vec![],
+            ..Default::default()
         },
         created_at: "2026-11-21T00:00:00Z".to_string(),
         updated_at: "2026-11-21T00:00:00Z".to_string(),
