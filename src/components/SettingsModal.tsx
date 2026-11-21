@@ -188,7 +188,7 @@ export function SettingsModal() {
         provider_type: providerType,
         base_url: baseUrl.trim(),
         api_key: apiKey.trim() ? apiKey.trim() : null,
-        models: existing?.models || [],
+        models: existing?.models.map((m) => m.id) || [],
         enabled: true,
         headers: null,
       });
