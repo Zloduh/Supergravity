@@ -94,8 +94,9 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const matchesSearch = (c: (typeof conversations)[number]) =>
     !searchLower || c.title.toLowerCase().includes(searchLower);
 
+  const projectIds = new Set(projects.map((p) => p.id));
   const standaloneConversations = conversations.filter(
-    (c) => !c.project_id && matchesSearch(c)
+    (c) => (!c.project_id || !projectIds.has(c.project_id)) && matchesSearch(c)
   );
 
   const renderConversationItem = (

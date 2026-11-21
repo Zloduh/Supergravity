@@ -124,6 +124,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
   let pollInFlight = false;
   let pollGeneration = 0;
   let polledConversationId: string | null = null;
+  let creatingConversation = false;
 
   const stopPolling = () => {
     pollGeneration += 1;
@@ -332,44 +333,50 @@ export const useConversationStore = create<ConversationState>((set, get) => {
     setActiveWorktreeMode: (mode) => set({ activeWorktreeMode: mode }),
 
     createConversation: async (title, systemPrompt, workspacePath, projectId, worktreeMode) => {
-      const effectiveMode = worktreeMode ?? get().activeWorktreeMode;
-      if (!isTauri()) {
-        const conv: Conversation = {
-          id: `local-${Date.now()}`,
-          title: title || 'New Conversation',
-          messages: [],
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-          workspace_path: workspacePath,
-          project_id: projectId ?? null,
-          worktree_mode: effectiveMode,
-        };
-        set((state) => ({
-          conversations: [conv, ...state.conversations],
-          activeConversationId: conv.id,
-          activeConversation: conv,
-        }));
-        return conv;
-      }
-      set({ loading: true, error: null });
+      if (creatingConversation) return null;
+      creatingConversation = true;
       try {
-        const conversation = await agentIpc.createConversation({
-          title: title ?? null,
-          system_prompt: systemPrompt ?? null,
-          workspace_path: workspacePath ?? null,
-          ...(projectId ? { project_id: projectId } : {}),
-          ...(worktreeMode ? { worktree_mode: worktreeMode } : {}),
-        });
-        set((state) => ({
-          conversations: upsertConversation(state.conversations, conversation),
-          activeConversationId: conversation.id,
-          activeConversation: conversation,
-          loading: false,
-        }));
-        return conversation;
-      } catch (error) {
-        set({ error: formatTauriError(error), loading: false });
-        return null;
+        const effectiveMode = worktreeMode ?? get().activeWorktreeMode;
+        if (!isTauri()) {
+          const conv: Conversation = {
+            id: `local-${Date.now()}`,
+            title: title || 'New Conversation',
+            messages: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            workspace_path: workspacePath,
+            project_id: projectId ?? null,
+            worktree_mode: effectiveMode,
+          };
+          set((state) => ({
+            conversations: upsertConversation(state.conversations, conv),
+            activeConversationId: conv.id,
+            activeConversation: conv,
+          }));
+          return conv;
+        }
+        set({ loading: true, error: null });
+        try {
+          const conversation = await agentIpc.createConversation({
+            title: title ?? null,
+            system_prompt: systemPrompt ?? null,
+            workspace_path: workspacePath ?? null,
+            ...(projectId ? { project_id: projectId } : {}),
+            ...(worktreeMode ? { worktree_mode: worktreeMode } : {}),
+          });
+          set((state) => ({
+            conversations: upsertConversation(state.conversations, conversation),
+            activeConversationId: conversation.id,
+            activeConversation: conversation,
+            loading: false,
+          }));
+          return conversation;
+        } catch (error) {
+          set({ error: formatTauriError(error), loading: false });
+          return null;
+        }
+      } finally {
+        creatingConversation = false;
       }
     },
 
