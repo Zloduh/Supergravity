@@ -44,7 +44,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const {
     config,
     saveConfig,
-    activeWorkspace,
     artifactPaneOpen,
     terminalOpen,
     setSettingsOpen,
@@ -116,7 +115,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     const targetProj = targetProjectId
       ? projects.find((p) => p.id === targetProjectId) || null
       : null;
-    const wsPath = targetProj?.folders?.[0]?.path || activeWorkspace;
+    const wsPath = targetProj?.folders?.[0]?.path || undefined;
     const wtMode =
       activeWorktreeMode || targetProj?.settings?.default_worktree_mode || 'local';
     void createConversation('New Conversation', undefined, wsPath, targetProjectId, wtMode);

@@ -115,7 +115,8 @@ impl MCPClientManager {
         // Discover servers from plugin .mcp.json and user MCP config files
         manager.discover_mcp_configs().await;
 
-        let skip_auto = std::env::var("ANTIGRAVITY_OFFLINE_NO_DISCOVER")
+        let skip_auto = std::env::var("SUPERGRAVITY_OFFLINE_NO_DISCOVER")
+            .or_else(|_| std::env::var("ANTIGRAVITY_OFFLINE_NO_DISCOVER"))
             .map(|v| v.trim() == "1" || v.trim().eq_ignore_ascii_case("true"))
             .unwrap_or(false);
         if mcp_config.auto_connect && !skip_auto {
@@ -139,7 +140,9 @@ impl MCPClientManager {
     }
 
     fn home_dir() -> PathBuf {
-        if let Some(override_dir) = std::env::var_os("ANTIGRAVITY_HOME_DIR") {
+        if let Some(override_dir) = std::env::var_os("SUPERGRAVITY_HOME_DIR")
+            .or_else(|| std::env::var_os("ANTIGRAVITY_HOME_DIR"))
+        {
             if !override_dir.is_empty() {
                 return PathBuf::from(override_dir);
             }
@@ -155,10 +158,9 @@ impl MCPClientManager {
         let home = Self::home_dir();
         let mut config_files = Vec::new();
 
-        // ~/.gemini/config/plugins/*/.mcp.json
+        // ~/.supergravity/plugins/*/.mcp.json
         let plugin_glob = home
-            .join(".gemini")
-            .join("config")
+            .join(".supergravity")
             .join("plugins")
             .join("*")
             .join(".mcp.json");
@@ -172,9 +174,7 @@ impl MCPClientManager {
 
         // User MCP config files
         for rel in [
-            ".gemini/config/mcp_config.json",
-            ".gemini/antigravity/mcp_config.json",
-            ".claude/mcp.json",
+            ".supergravity/mcp_config.json",
             ".mcp.json",
         ] {
             let p = home.join(rel);

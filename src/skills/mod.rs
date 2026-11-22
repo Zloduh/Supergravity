@@ -209,12 +209,12 @@ impl SkillManager {
             }
         };
 
-        let global_gemini_md = home.join(".gemini").join("GEMINI.md");
-        if global_gemini_md.exists() {
-            if let Ok(content) = tokio::fs::read_to_string(&global_gemini_md).await {
+        let global_rules_md = home.join(".supergravity").join("RULES.md");
+        if global_rules_md.exists() {
+            if let Ok(content) = tokio::fs::read_to_string(&global_rules_md).await {
                 push_rule(
-                    "Global Rules (~/.gemini/GEMINI.md)".to_string(),
-                    &global_gemini_md,
+                    "Global Rules (~/.supergravity/RULES.md)".to_string(),
+                    &global_rules_md,
                     content,
                 );
             }
@@ -222,7 +222,7 @@ impl SkillManager {
 
         if let Some(ws) = workspace_path {
             let ws_path = Path::new(ws);
-            for candidate in ["GEMINI.md", "AGENTS.md", ".cursorrules", "CLAUDE.md"] {
+            for candidate in ["SUPER.md", "AGENTS.md"] {
                 let p = ws_path.join(candidate);
                 if p.exists() {
                     if let Ok(content) = tokio::fs::read_to_string(&p).await {
@@ -231,9 +231,9 @@ impl SkillManager {
                 }
             }
             for rules_subdir in [
+                ws_path.join(".supergravity").join("rules"),
                 ws_path.join(".agents").join("rules"),
                 ws_path.join(".agent").join("rules"),
-                ws_path.join(".gemini").join("rules"),
             ] {
                 if rules_subdir.is_dir() {
                     if let Ok(mut entries) = tokio::fs::read_dir(&rules_subdir).await {
@@ -272,10 +272,10 @@ impl SkillManager {
         workspace_path: Option<&str>,
     ) -> std::result::Result<(), String> {
         let home = Self::home_dir();
-        let mut hook_files = vec![home.join(".gemini").join("config").join("hooks.json")];
+        let mut hook_files = vec![home.join(".supergravity").join("hooks.json")];
         if let Some(ws) = workspace_path {
+            hook_files.push(Path::new(ws).join(".supergravity").join("hooks.json"));
             hook_files.push(Path::new(ws).join(".agents").join("hooks.json"));
-            hook_files.push(Path::new(ws).join(".gemini").join("hooks.json"));
         }
 
         for hf in hook_files {
@@ -308,9 +308,9 @@ impl SkillManager {
                 let output = tokio::process::Command::new("bash")
                     .arg("-c")
                     .arg(cmd_str)
-                    .env("ANTIGRAVITY_HOOK_PHASE", phase)
-                    .env("ANTIGRAVITY_HOOK_TOOL", tool_name)
-                    .env("ANTIGRAVITY_HOOK_ARGS", &payload)
+                    .env("SUPERGRAVITY_HOOK_PHASE", phase)
+                    .env("SUPERGRAVITY_HOOK_TOOL", tool_name)
+                    .env("SUPERGRAVITY_HOOK_ARGS", &payload)
                     .output()
                     .await;
                 if let Ok(out) = output {
@@ -330,7 +330,9 @@ impl SkillManager {
     }
 
     fn home_dir() -> PathBuf {
-        if let Some(override_dir) = std::env::var_os("ANTIGRAVITY_HOME_DIR") {
+        if let Some(override_dir) = std::env::var_os("SUPERGRAVITY_HOME_DIR")
+            .or_else(|| std::env::var_os("ANTIGRAVITY_HOME_DIR"))
+        {
             if !override_dir.is_empty() {
                 return PathBuf::from(override_dir);
             }
@@ -376,10 +378,9 @@ impl SkillManager {
             }
         }
         let canonical = vec![
-            home.join(".gemini").join("antigravity").join("builtin").join("skills").to_string_lossy().to_string(),
-            home.join(".gemini").join("config").join("plugins").join("*").join("skills").to_string_lossy().to_string(),
-            home.join(".gemini").join("config").join("skills").to_string_lossy().to_string(),
-            home.join(".claude").join("skills").to_string_lossy().to_string(),
+            home.join(".supergravity").join("builtin").join("skills").to_string_lossy().to_string(),
+            home.join(".supergravity").join("plugins").join("*").join("skills").to_string_lossy().to_string(),
+            home.join(".supergravity").join("skills").to_string_lossy().to_string(),
             home.join(".agents").join("skills").to_string_lossy().to_string(),
         ];
         for c in canonical {

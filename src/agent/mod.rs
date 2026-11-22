@@ -795,7 +795,9 @@ fn cron_matches(expr: &str, now: &chrono::DateTime<chrono::Local>) -> bool {
 
 impl AgentEngineInner {
     fn home_dir() -> PathBuf {
-        if let Some(override_dir) = std::env::var_os("ANTIGRAVITY_HOME_DIR") {
+        if let Some(override_dir) = std::env::var_os("SUPERGRAVITY_HOME_DIR")
+            .or_else(|| std::env::var_os("ANTIGRAVITY_HOME_DIR"))
+        {
             if !override_dir.is_empty() {
                 return PathBuf::from(override_dir);
             }
@@ -808,14 +810,15 @@ impl AgentEngineInner {
     }
 
     fn brain_root() -> PathBuf {
-        if let Some(override_dir) = std::env::var_os("ANTIGRAVITY_BRAIN_DIR") {
+        if let Some(override_dir) = std::env::var_os("SUPERGRAVITY_BRAIN_DIR")
+            .or_else(|| std::env::var_os("ANTIGRAVITY_BRAIN_DIR"))
+        {
             if !override_dir.is_empty() {
                 return PathBuf::from(override_dir);
             }
         }
         Self::home_dir()
-            .join(".gemini")
-            .join("antigravity")
+            .join(".supergravity")
             .join("brain")
     }
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   X,
   FileText,
@@ -47,14 +47,12 @@ export function ArtifactPane() {
     useConversationStore();
 
   const projects = config.workspace?.projects || [];
-  const convProject =
-    projects.find((p) => p.id === activeConversation?.project_id) ||
-    projects.find((p) => p.id === config.workspace?.active_project_id) ||
-    null;
-  const effectiveWorkspace =
-    activeConversation?.workspace_path ||
-    convProject?.folders?.[0]?.path ||
-    activeWorkspace;
+  const convProject = activeConversation
+    ? projects.find((p) => p.id === activeConversation.project_id) || null
+    : projects.find((p) => p.id === config.workspace?.active_project_id) || null;
+  const effectiveWorkspace = activeConversation
+    ? activeConversation.workspace_path || convProject?.folders?.[0]?.path || null
+    : convProject?.folders?.[0]?.path || (activeWorkspace !== '.' ? activeWorkspace : null);
 
   const [tab, setTab] = useState<AuxTab>('artifacts');
   const [browsingDir, setBrowsingDir] = useState<string | null>(null);
@@ -97,14 +95,20 @@ export function ArtifactPane() {
 
   useEffect(() => {
     setBrowsingDir(null);
-  }, [effectiveWorkspace, activeConversationId]);
+    setActiveArtifact(null);
+  }, [effectiveWorkspace, activeConversationId, setActiveArtifact]);
 
   useEffect(() => {
     if (!artifactPaneOpen) return;
     if (activeConversationId) {
       fetchArtifacts(activeConversationId);
     }
-    fetchWorkspaceFiles(browsingDir || effectiveWorkspace, false);
+    const targetDir = browsingDir || effectiveWorkspace;
+    if (targetDir) {
+      fetchWorkspaceFiles(targetDir, false);
+    } else {
+      useAppStore.setState({ workspaceFiles: [], workspaceFilesLoading: false });
+    }
   }, [
     artifactPaneOpen,
     activeConversationId,
@@ -116,12 +120,26 @@ export function ArtifactPane() {
     fetchWorkspaceFiles,
   ]);
 
-  // Auto-select the first artifact when artifacts populate and nothing is currently selected
+  const lastArtifactStampRef = useRef<Record<string, string>>({});
+
+  // Auto-select the first artifact when artifacts populate, and auto-refresh the active artifact when updated on disk
   useEffect(() => {
-    if (!artifactPaneOpen || tab !== 'artifacts') return;
-    if (!activeArtifact && artifacts.length > 0) {
+    if (!artifactPaneOpen || tab !== 'artifacts' || artifacts.length === 0) return;
+    if (!activeArtifact) {
       const first = artifacts[0];
+      lastArtifactStampRef.current[first.name] = `${first.path}:${first.updated_at}`;
       void openFile(first.path, first.name);
+      return;
+    }
+    const matching = artifacts.find(
+      (a) => a.path === activeArtifact.path || a.name === activeArtifact.title
+    );
+    if (matching) {
+      const stamp = `${matching.path}:${matching.updated_at}`;
+      if (lastArtifactStampRef.current[matching.name] !== stamp) {
+        lastArtifactStampRef.current[matching.name] = stamp;
+        void openFile(matching.path, matching.name);
+      }
     }
   }, [artifactPaneOpen, tab, artifacts, activeArtifact]);
 
@@ -194,7 +212,10 @@ export function ArtifactPane() {
     if (activeConversationId) {
       fetchArtifacts(activeConversationId);
     }
-    fetchWorkspaceFiles(browsingDir || effectiveWorkspace, false);
+    const targetDir = browsingDir || effectiveWorkspace;
+    if (targetDir) {
+      fetchWorkspaceFiles(targetDir, false);
+    }
   };
 
   const isMarkdown =
@@ -425,8 +446,11 @@ export function ArtifactPane() {
       {tab === 'files' && (
         <div className="max-h-44 overflow-y-auto border-b border-gray-800/80 bg-gray-950/30 p-2 space-y-0.5 flex-shrink-0">
           <div className="flex items-center justify-between px-2 py-0.5 text-[10px] text-gray-500">
-            <span className="truncate font-mono" title={browsingDir || effectiveWorkspace}>
-              {browsingDir || effectiveWorkspace}
+            <span
+              className="truncate font-mono"
+              title={browsingDir || effectiveWorkspace || 'Standalone brain'}
+            >
+              {browsingDir || effectiveWorkspace || 'Standalone conversation (no project folder)'}
             </span>
             {browsingDir && (
               <button
@@ -442,7 +466,9 @@ export function ArtifactPane() {
             <p className="text-xs text-gray-500 px-2 py-1">Loading workspace files…</p>
           ) : workspaceFiles.length === 0 ? (
             <p className="text-xs text-gray-500 px-2 py-1">
-              No files listed in {browsingDir || effectiveWorkspace}
+              {browsingDir || effectiveWorkspace
+                ? `No files listed in ${browsingDir || effectiveWorkspace}`
+                : 'No workspace folder attached. Move this conversation into a project to browse project files.'}
             </p>
           ) : (
             workspaceFiles.map((entry) => (

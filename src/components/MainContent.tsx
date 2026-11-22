@@ -638,7 +638,15 @@ export function MainContent() {
   const submitPromptText = async (rawPrompt: string) => {
     if (!rawPrompt.trim() && attachments.length === 0) return;
 
-    const effectiveWs = activeProject?.folders?.[0]?.path || activeWorkspace;
+    const effectiveProjId = activeConversation
+      ? activeConversation.project_id ?? null
+      : activeProjectId;
+    const effectiveProj = effectiveProjId
+      ? projects.find((p) => p.id === effectiveProjId) || null
+      : null;
+    const effectiveWs = activeConversation
+      ? activeConversation.workspace_path || effectiveProj?.folders?.[0]?.path || undefined
+      : activeProject?.folders?.[0]?.path || (activeWorkspace !== '.' ? activeWorkspace : undefined);
     const effectiveMode = isKnowledgeWorkLayout ? 'local' : currentWorktreeMode;
 
     let convId = activeConversationId;
@@ -647,7 +655,7 @@ export function MainContent() {
         (rawPrompt || attachments[0]?.name || 'New Conversation').slice(0, 40),
         undefined,
         effectiveWs,
-        activeProjectId,
+        effectiveProjId,
         effectiveMode
       );
       if (!created) return;
@@ -699,7 +707,7 @@ export function MainContent() {
       activeProviderId || undefined,
       selectedModel || undefined,
       effectiveWs,
-      activeProjectId,
+      effectiveProjId,
       effectiveMode
     );
   };
@@ -798,10 +806,17 @@ export function MainContent() {
           <div className="flex items-center gap-1.5 bg-gray-900/90 border border-gray-800 rounded-lg px-2.5 py-1 max-w-[220px] sm:max-w-xs min-w-0">
             <FolderOpen className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
             <input
-              value={activeWorkspace}
+              value={
+                activeConversation
+                  ? activeConversation.workspace_path || ''
+                  : activeWorkspace === '.'
+                    ? ''
+                    : activeWorkspace
+              }
+              placeholder="Standalone (brain)"
               onChange={(e) => setActiveWorkspace(e.target.value)}
               aria-label="Active Workspace Path"
-              className="bg-transparent text-xs text-gray-200 focus:outline-none w-20 sm:w-32 truncate font-mono"
+              className="bg-transparent text-xs text-gray-200 focus:outline-none w-20 sm:w-32 truncate font-mono placeholder-gray-500"
               title="Active Workspace Path"
             />
             <button

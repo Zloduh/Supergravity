@@ -423,10 +423,9 @@ impl Default for SkillsConfig {
             .map(|b| b.home_dir().to_path_buf())
             .unwrap_or_else(|| PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string())));
         let directories = vec![
-            home.join(".gemini").join("antigravity").join("builtin").join("skills").to_string_lossy().to_string(),
-            home.join(".gemini").join("config").join("plugins").join("*").join("skills").to_string_lossy().to_string(),
-            home.join(".gemini").join("config").join("skills").to_string_lossy().to_string(),
-            home.join(".claude").join("skills").to_string_lossy().to_string(),
+            home.join(".supergravity").join("builtin").join("skills").to_string_lossy().to_string(),
+            home.join(".supergravity").join("plugins").join("*").join("skills").to_string_lossy().to_string(),
+            home.join(".supergravity").join("skills").to_string_lossy().to_string(),
             home.join(".agents").join("skills").to_string_lossy().to_string(),
         ];
 
@@ -521,12 +520,26 @@ pub struct ConfigManager {
 
 impl ConfigManager {
     pub async fn new() -> Result<Arc<Self>> {
-        let config_path = match std::env::var_os("ANTIGRAVITY_CONFIG_PATH") {
+        let config_path = match std::env::var_os("SUPERGRAVITY_CONFIG_PATH")
+            .or_else(|| std::env::var_os("ANTIGRAVITY_CONFIG_PATH"))
+        {
             Some(path) if !path.is_empty() => PathBuf::from(path),
             _ => {
-                let proj_dirs = ProjectDirs::from("com", "antigravity", "Antigravity")
+                let proj_dirs = ProjectDirs::from("com", "supergravity", "Supergravity")
                     .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?;
-                proj_dirs.config_dir().join("config.toml")
+                let target = proj_dirs.config_dir().join("config.toml");
+                if !target.exists() {
+                    if let Some(legacy_dirs) = ProjectDirs::from("com", "antigravity", "Antigravity") {
+                        let legacy = legacy_dirs.config_dir().join("config.toml");
+                        if legacy.is_file() {
+                            if let Some(p) = target.parent() {
+                                let _ = tokio::fs::create_dir_all(p).await;
+                            }
+                            let _ = tokio::fs::copy(&legacy, &target).await;
+                        }
+                    }
+                }
+                target
             }
         };
 
@@ -549,14 +562,19 @@ impl ConfigManager {
                 let raw = tokio::fs::read_to_string(&config_path).await?;
                 let mut cfg: AppConfig = toml::from_str(&raw)?;
 
-                let has_env_overrides = std::env::vars().any(|(k, _)| {
+                let has_supergravity_env = std::env::vars().any(|(k, _)| {
+                    k.len() > "SUPERGRAVITY__".len()
+                        && k[.."SUPERGRAVITY__".len()].eq_ignore_ascii_case("SUPERGRAVITY__")
+                });
+                let has_legacy_env = std::env::vars().any(|(k, _)| {
                     k.len() > "ANTIGRAVITY__".len()
                         && k[.."ANTIGRAVITY__".len()].eq_ignore_ascii_case("ANTIGRAVITY__")
                 });
-                if has_env_overrides {
+                if has_supergravity_env || has_legacy_env {
+                    let prefix = if has_supergravity_env { "SUPERGRAVITY" } else { "ANTIGRAVITY" };
                     let env_settings = Config::builder()
                         .add_source(
-                            Environment::with_prefix("ANTIGRAVITY")
+                            Environment::with_prefix(prefix)
                                 .separator("__")
                                 .try_parsing(true),
                         )
@@ -597,8 +615,19 @@ impl ConfigManager {
             AppConfig::default()
         };
 
-        // Ensure Strata local and LAN endpoints are present with API key "strata"
+        // Migrate legacy skill directories to Supergravity's own ~/.supergravity folders
         let mut migrated = false;
+        if config
+            .skills
+            .directories
+            .iter()
+            .any(|d| d.contains(".gemini/antigravity") || d.contains(".gemini/config/skills"))
+        {
+            config.skills.directories = SkillsConfig::default().directories;
+            migrated = true;
+        }
+
+        // Ensure Strata local and LAN endpoints are present with API key "strata"
         if let Some(p) = config.llm.providers.iter_mut().find(|p| p.id == "strata" || p.base_url.contains("47831")) {
             if p.api_key.as_deref().unwrap_or("").is_empty() {
                 p.api_key = Some("strata".to_string());

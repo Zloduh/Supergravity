@@ -682,7 +682,7 @@ export function SettingsModal() {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">
-                  Discovered from ~/.gemini/config/plugins/*/.mcp.json and user MCP config files.
+                  Discovered from ~/.supergravity/plugins/*/.mcp.json and ~/.supergravity/mcp_config.json.
                 </p>
                 <button
                   type="button"
