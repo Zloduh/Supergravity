@@ -204,6 +204,7 @@ pub struct AgentEngine {
 #[derive(Clone)]
 struct AgentEngineInner {
     tasks: Arc<RwLock<HashMap<String, AgentTask>>>,
+    task_handles: Arc<RwLock<HashMap<String, tokio::task::AbortHandle>>>,
     conversations: Arc<RwLock<HashMap<String, Conversation>>>,
     bg_commands: Arc<RwLock<HashMap<String, Arc<BackgroundCommandTask>>>>,
     pending_questions: Arc<Mutex<HashMap<String, oneshot::Sender<serde_json::Value>>>>,
@@ -260,6 +261,7 @@ impl AgentEngine {
 
         let inner = AgentEngineInner {
             tasks: Arc::new(RwLock::new(HashMap::new())),
+            task_handles: Arc::new(RwLock::new(HashMap::new())),
             conversations: Arc::new(RwLock::new(HashMap::new())),
             bg_commands: Arc::new(RwLock::new(HashMap::new())),
             pending_questions: Arc::new(Mutex::new(HashMap::new())),
@@ -400,16 +402,22 @@ impl AgentEngine {
         let provider_id = request.provider_id;
         let model = request.model;
 
-        tokio::spawn(async move {
+        let task_id_for_map = task_id.clone();
+        let handles_map = self.inner.task_handles.clone();
+        let jh = tokio::spawn(async move {
             let _ = inner
                 .run_agent_loop(task_id, prompt, system_prompt, provider_id, model, true, true, false)
                 .await;
         });
+        handles_map.write().await.insert(task_id_for_map, jh.abort_handle());
 
         Ok(task)
     }
 
     pub async fn cancel_agent_task(&self, task_id: &str) -> Result<AgentTask> {
+        if let Some(abort_handle) = self.inner.task_handles.write().await.remove(task_id) {
+            abort_handle.abort();
+        }
         let mut tasks = self.inner.tasks.write().await;
         let task = tasks
             .get_mut(task_id)
