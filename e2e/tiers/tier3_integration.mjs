@@ -319,6 +319,7 @@ export function getTests() {
             btns.find((b) => b.textContent?.trim().startsWith(tabLabel))?.click();
           }, label);
         }
+        await app.page.click('button[aria-label="Toggle Artifact & File Pane"]');
 
         // 5. Settings -> Agent & Preferences: Save Preferences
         await app.page.click('button[aria-label="Local LLM, MCP & Skills Settings"]');

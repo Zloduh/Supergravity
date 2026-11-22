@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   useConversationStore,
   type ConversationMessage,
@@ -434,6 +434,22 @@ export function MainContent() {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerRowRef = useRef<HTMLDivElement>(null);
+  const [showSideGauges, setShowSideGauges] = useState(true);
+
+  useEffect(() => {
+    const el = composerRowRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => setShowSideGauges(el.getBoundingClientRect().width >= 740);
+    update();
+    const ro = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setShowSideGauges(entry.contentRect.width >= 740);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const { containerRef, bottomRef, showScrollButton, scrollToBottom, handleScroll } =
     useAutoScroll([
@@ -1123,7 +1139,7 @@ export function MainContent() {
       )}
 
       {/* Composer Input Area */}
-      <div className="border-t border-gray-800/80 bg-[#0d121c] p-3 sm:p-4">
+      <div ref={composerRowRef} className="border-t border-gray-800/80 bg-[#0d121c] p-3 sm:p-4">
         {(() => {
           const msgChars = (activeConversation?.messages || []).reduce((acc, m) => {
             const tcChars = (m.tool_calls || []).reduce((tAcc, c) => tAcc + JSON.stringify(c).length, 0);
@@ -1170,11 +1186,41 @@ export function MainContent() {
                   : { label: 'Ready', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400', bar: 'bg-emerald-500/50' };
 
           return (
-            <div className="flex items-stretch justify-center gap-3 max-w-[1440px] mx-auto">
+            <div className="space-y-2 max-w-[1440px] mx-auto">
+              {!showSideGauges && (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1 rounded-lg bg-gray-950/90 border border-gray-800 text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400 font-medium">Model state</span>
+                    <span
+                      className={cn(
+                        'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium border',
+                        stateBadge.cls
+                      )}
+                    >
+                      <span className={cn('w-1.5 h-1.5 rounded-full', stateBadge.dot)} />
+                      {stateBadge.label}
+                    </span>
+                    <span className="font-mono text-gray-300">
+                      {telemetry.tokensPerSec > 0 ? `${telemetry.tokensPerSec.toFixed(1)} tok/s` : '— tok/s'}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 font-mono text-gray-300">
+                    <span className="text-gray-400">Context fill</span>
+                    <span style={{ color: ctxColor }} className="font-semibold">
+                      {ctxPct}%
+                    </span>
+                    <span className="text-gray-500">
+                      ({formatK(ctxTokens)}/{formatLimitK(ctxLimit)})
+                    </span>
+                  </div>
+                </div>
+              )}
+              <div className="flex items-stretch justify-center gap-3">
               {/* Left: Model State & Token Speed Card */}
+              {showSideGauges && (
               <div
                 aria-label="Model state and speed"
-                className="hidden xl:flex flex-col justify-between w-52 flex-shrink-0 rounded-xl bg-gray-950/90 border border-gray-800 p-3"
+                className="flex flex-col justify-between w-48 flex-shrink-0 rounded-xl bg-gray-950/90 border border-gray-800 p-3"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-semibold text-gray-200">Model state</span>
@@ -1208,6 +1254,7 @@ export function MainContent() {
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Center: Composer */}
               <div className="flex-1 min-w-0 max-w-4xl relative">
@@ -1464,9 +1511,10 @@ export function MainContent() {
               </div>
 
               {/* Right: Context Fill Circular Gauge Card */}
+              {showSideGauges && (
               <div
                 aria-label="Context fill gauge"
-                className="hidden xl:flex flex-col items-center justify-between w-40 flex-shrink-0 rounded-xl bg-gray-950/90 border border-gray-800 p-2.5"
+                className="flex flex-col items-center justify-between w-36 flex-shrink-0 rounded-xl bg-gray-950/90 border border-gray-800 p-2.5"
               >
                 <span className="text-[11px] font-semibold text-gray-200 self-start">
                   Context fill
@@ -1502,6 +1550,8 @@ export function MainContent() {
                 <span className="text-[10px] text-gray-400 font-mono">
                   {formatK(ctxTokens)} / {formatLimitK(ctxLimit)}
                 </span>
+              </div>
+              )}
               </div>
             </div>
           );
