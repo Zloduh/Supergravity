@@ -1700,6 +1700,21 @@ impl AgentEngineInner {
                 });
             }
 
+            if !llm_messages.iter().any(|m| matches!(m.role, MessageRole::User)) {
+                llm_messages.insert(
+                    1.min(llm_messages.len()),
+                    ChatMessage {
+                        role: MessageRole::User,
+                        content: "Continue executing the task based on the context and tool results."
+                            .to_string(),
+                        reasoning_content: None,
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                );
+            }
+
             let llm_request = ChatCompletionRequest {
                 model: chosen_model,
                 messages: llm_messages,
@@ -3161,7 +3176,7 @@ impl AgentEngineInner {
         let summary_body = llm_summary.unwrap_or(digest);
         let compacted_msg = ConversationMessage {
             id: Uuid::new_v4().to_string(),
-            role: "assistant".to_string(),
+            role: "user".to_string(),
             content: format!(
                 "[Auto-Compacted Context at ~{} / {} tokens (80% threshold, 20% remaining)]\n\n{}{}",
                 estimated, effective_ctx, summary_body, files_note
@@ -3258,6 +3273,7 @@ mod tests {
             .maybe_compact_conversation(&mut conv, "sys", &[], 2000, None, "coder-iq1_m")
             .await;
         assert!(compacted, "Expected auto-compaction at >= 80% of context_length");
+        assert_eq!(conv.messages[0].role, "user");
         assert!(conv.messages[0].content.contains("[Auto-Compacted Context"));
         assert!(conv.messages.len() < 12);
         // Must not start the preserved tail with an orphaned tool result
