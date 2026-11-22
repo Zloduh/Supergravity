@@ -82,6 +82,16 @@ pub struct PlanReviewRequest {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentTelemetryEvent {
+    pub conversation_id: String,
+    pub model_state: String,
+    pub tokens_generated: u64,
+    pub tokens_per_sec: f64,
+    pub context_tokens: usize,
+    pub context_limit: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Conversation {
     pub id: String,
     pub title: String,
@@ -630,9 +640,6 @@ impl AgentEngine {
         if let Some(ws) = ws_path {
             let ws_dir = PathBuf::from(ws);
             for fname in ["plan.md", "task.md", "walkthrough.md"] {
-                if seen_names.contains(fname) {
-                    continue;
-                }
                 let candidate = ws_dir.join(fname);
                 if candidate.is_file() {
                     if let Ok(meta) = tokio::fs::metadata(&candidate).await {
@@ -640,13 +647,22 @@ impl AgentEngine {
                             .modified()
                             .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
                             .into();
-                        seen_names.insert(fname.to_string());
-                        out.push(ArtifactInfo {
-                            name: fname.to_string(),
-                            path: candidate.to_string_lossy().to_string(),
-                            size: meta.len(),
-                            updated_at: modified.to_rfc3339(),
-                        });
+                        let updated_at = modified.to_rfc3339();
+                        if let Some(existing) = out.iter_mut().find(|a| a.name == fname) {
+                            if updated_at > existing.updated_at {
+                                existing.path = candidate.to_string_lossy().to_string();
+                                existing.size = meta.len();
+                                existing.updated_at = updated_at;
+                            }
+                        } else {
+                            seen_names.insert(fname.to_string());
+                            out.push(ArtifactInfo {
+                                name: fname.to_string(),
+                                path: candidate.to_string_lossy().to_string(),
+                                size: meta.len(),
+                                updated_at,
+                            });
+                        }
                     }
                 }
             }
@@ -1080,9 +1096,10 @@ impl AgentEngineInner {
             "You are Supergravity, an expert local-first agentic AI IDE and coding assistant.\n\
             Use your tools to inspect files, edit code, run commands, search the workspace, and complete tasks accurately.\n\n\
             Execution & Verification Rules:\n\
-            1. Plan-driven work: If a plan.md or task.md exists (or you create one), execute ONE stage/task at a time in order. After completing and verifying each stage, immediately update plan.md (mark completed items [x] and note status) with edit_file before starting the next stage.\n\
-            2. Skills & Rules: Follow all active rules below. If a task matches an available skill, read its SKILL.md with read_file before acting.\n\
-            3. Honesty & Verification: Only report file paths, symbol names, and test/command results you directly observed in tool output after your final edit.\n",
+            1. Artifacts vs Workspace: Write artifacts (plan.md, task.md, walkthrough.md, reports) inside Artifact & Brain Directory, and write project source code/tests inside Active Workspace.\n\
+            2. Plan-driven work: If a plan.md or task.md exists (or you create one), execute ONE stage/task at a time in order. After completing and verifying each stage, immediately update plan.md and task.md (mark completed items [x] and note status) with edit_file before starting the next stage.\n\
+            3. Skills & Rules: Follow all active rules below. If a task matches an available skill, read its SKILL.md with read_file before acting.\n\
+            4. Honesty & Verification: Only report file paths, symbol names, and test/command results you directly observed in tool output after your final edit.\n",
         );
         prompt.push_str(&format!("\nActive Workspace: {}\n", ws));
         prompt.push_str(&format!("Artifact & Brain Directory: {}\n", brain.to_string_lossy()));
@@ -1448,7 +1465,10 @@ impl AgentEngineInner {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("Conversation not found"))?;
 
-        if append_user_msg {
+        let is_goal_mode = prompt.starts_with("Autonomous Goal Mode:");
+        let is_compact_cmd = prompt.trim() == "/compact"
+            || prompt.starts_with("Summarize our conversation so far into key decisions, current state, and next steps.");
+        if append_user_msg && !is_compact_cmd {
             if conversation.messages.is_empty() && conversation.title == "New Conversation" {
                 conversation.title = prompt.chars().take(48).collect();
             }
@@ -1480,8 +1500,87 @@ impl AgentEngineInner {
         let tool_defs = self.build_tool_definitions(enable_write, enable_mcp).await;
         let effective_provider_id = provider_id.or_else(|| conversation.provider_id.clone());
         let mut edits_since_plan_update: usize = 0;
+        let mut empty_response_retries: u32 = 0;
 
-        for iteration in 0..agent_config.max_iterations {
+        let effective_max_iterations = if is_goal_mode {
+            agent_config.max_iterations.max(200)
+        } else {
+            agent_config.max_iterations
+        };
+
+        if is_compact_cmd {
+            let provider = self
+                .llm_providers
+                .resolve_provider(effective_provider_id.as_deref())
+                .await;
+            let chosen_model = model
+                .clone()
+                .or_else(|| conversation.model.clone())
+                .or_else(|| llm_config.default_model.clone())
+                .or_else(|| provider.as_ref().and_then(|p| p.models.first().map(|m| m.id.clone())))
+                .unwrap_or_else(|| "coder-iq1_m".to_string());
+            let effective_ctx = provider
+                .as_ref()
+                .and_then(|p| p.models.iter().find(|m| m.id == chosen_model).and_then(|m| m.context_length))
+                .unwrap_or_else(|| {
+                    if llm_config.inherit_model_settings {
+                        llm_config.context_length.unwrap_or(32768).max(131072)
+                    } else {
+                        llm_config.context_length.unwrap_or(32768)
+                    }
+                });
+            let compacted = self
+                .compact_conversation_with_force(
+                    &mut conversation,
+                    &sys_prompt,
+                    &tool_defs,
+                    effective_ctx,
+                    effective_provider_id.as_deref(),
+                    &chosen_model,
+                    true,
+                )
+                .await;
+            if !compacted {
+                conversation.messages.push(ConversationMessage {
+                    id: Uuid::new_v4().to_string(),
+                    role: "assistant".to_string(),
+                    content: "Conversation is already compact (no older history to summarize).".to_string(),
+                    reasoning_content: None,
+                    created_at: Utc::now(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                    tool_name: None,
+                });
+            }
+            self.conversations
+                .write()
+                .await
+                .insert(conversation_id.clone(), conversation.clone());
+            let _ = self.persist_conversation(&conversation).await;
+            self.emit_conversation(&conversation).await;
+            let ctx_tokens = Self::estimate_prompt_tokens(&sys_prompt, &tool_defs, &conversation.messages);
+            self.emit_telemetry(AgentTelemetryEvent {
+                conversation_id: conversation_id.clone(),
+                model_state: "ready".to_string(),
+                tokens_generated: 0,
+                tokens_per_sec: 0.0,
+                context_tokens: ctx_tokens,
+                context_limit: effective_ctx,
+            })
+            .await;
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.get_mut(&task_id) {
+                task.status = AgentTaskStatus::Completed;
+                task.result = Some("Conversation compacted.".to_string());
+                task.updated_at = Utc::now();
+                if let Some(handle) = self.app_handle.read().await.as_ref() {
+                    let _ = handle.emit("agent-task-update", task.clone());
+                }
+            }
+            return Ok("Conversation compacted.".to_string());
+        }
+
+        for iteration in 0..effective_max_iterations {
             // Check cancellation
             if let Some(t) = self.tasks.read().await.get(&task_id) {
                 if t.status == AgentTaskStatus::Cancelled {
@@ -1515,6 +1614,56 @@ impl AgentEngineInner {
                 return Err(anyhow::anyhow!(err_msg));
             };
 
+            let chosen_model = model
+                .clone()
+                .or_else(|| conversation.model.clone())
+                .or_else(|| llm_config.default_model.clone())
+                .or_else(|| provider.models.first().map(|m| m.id.clone()))
+                .unwrap_or_else(|| "coder-iq1_m".to_string());
+
+            let effective_ctx = provider
+                .models
+                .iter()
+                .find(|m| m.id == chosen_model)
+                .and_then(|m| m.context_length)
+                .unwrap_or_else(|| {
+                    if llm_config.inherit_model_settings {
+                        llm_config.context_length.unwrap_or(32768).max(131072)
+                    } else {
+                        llm_config.context_length.unwrap_or(32768)
+                    }
+                });
+
+            if self
+                .maybe_compact_conversation(
+                    &mut conversation,
+                    &sys_prompt,
+                    &tool_defs,
+                    effective_ctx,
+                    effective_provider_id.as_deref(),
+                    &chosen_model,
+                )
+                .await
+            {
+                self.conversations
+                    .write()
+                    .await
+                    .insert(conversation_id.clone(), conversation.clone());
+                let _ = self.persist_conversation(&conversation).await;
+                self.emit_conversation(&conversation).await;
+            }
+
+            let ctx_tokens = Self::estimate_prompt_tokens(&sys_prompt, &tool_defs, &conversation.messages);
+            self.emit_telemetry(AgentTelemetryEvent {
+                conversation_id: conversation_id.clone(),
+                model_state: "thinking".to_string(),
+                tokens_generated: 0,
+                tokens_per_sec: 0.0,
+                context_tokens: ctx_tokens,
+                context_limit: effective_ctx,
+            })
+            .await;
+
             let mut llm_messages = vec![ChatMessage {
                 role: MessageRole::System,
                 content: sys_prompt.clone(),
@@ -1547,13 +1696,6 @@ impl AgentEngineInner {
                     tool_call_id: m.tool_call_id.clone(),
                 });
             }
-
-            let chosen_model = model
-                .clone()
-                .or_else(|| conversation.model.clone())
-                .or_else(|| llm_config.default_model.clone())
-                .or_else(|| provider.models.first().map(|m| m.id.clone()))
-                .unwrap_or_else(|| "coder-iq1_m".to_string());
 
             let llm_request = ChatCompletionRequest {
                 model: chosen_model,
@@ -1590,6 +1732,8 @@ impl AgentEngineInner {
                 let conv_id_clone = conversation_id.clone();
                 let msg_id_clone = assistant_msg_id.clone();
                 let convs_map = self.conversations.clone();
+                let stream_start = std::time::Instant::now();
+                let mut stream_tokens: u64 = 0;
 
                 let stream_res = self
                     .llm_providers
@@ -1597,17 +1741,31 @@ impl AgentEngineInner {
                         effective_provider_id.as_deref(),
                         llm_request,
                         |chunk| {
+                        let chunk_tps = chunk
+                            .timings
+                            .as_ref()
+                            .and_then(|t| t.get("predicted_per_second"))
+                            .and_then(|v| v.as_f64());
+                        let usage_prompt = chunk
+                            .usage
+                            .as_ref()
+                            .map(|u| u.prompt_tokens as usize);
                         if let Some(choice) = chunk.choices.first() {
                             let content_delta = choice.delta.content.clone().unwrap_or_default();
                             let reasoning_delta = choice.delta.reasoning_content.clone().unwrap_or_default();
 
                             if !content_delta.is_empty() {
                                 acc_content.push_str(&content_delta);
+                                stream_tokens += 1;
                             }
                             if !reasoning_delta.is_empty() {
                                 acc_reasoning.push_str(&reasoning_delta);
+                                stream_tokens += 1;
                             }
                             if let Some(tc_deltas) = &choice.delta.tool_calls {
+                                if !tc_deltas.is_empty() {
+                                    stream_tokens += 1;
+                                }
                                 for d in tc_deltas {
                                     let entry = acc_tools.entry(d.index).or_insert_with(|| ToolCall {
                                         id: d.id.clone().unwrap_or_else(|| format!("call_{}", d.index)),
@@ -1666,6 +1824,28 @@ impl AgentEngineInner {
                                             "reasoning_delta": reasoning_delta,
                                         }),
                                     );
+                                    if stream_tokens % 4 == 1 || chunk_tps.is_some() || usage_prompt.is_some() {
+                                        let elapsed = stream_start.elapsed().as_secs_f64().max(0.1);
+                                        let tps = chunk_tps.unwrap_or_else(|| stream_tokens as f64 / elapsed);
+                                        let state = if !reasoning_delta.is_empty() && content_delta.is_empty() {
+                                            "thinking"
+                                        } else {
+                                            "generating"
+                                        };
+                                        let _ = h.emit(
+                                            "agent-telemetry",
+                                            AgentTelemetryEvent {
+                                                conversation_id: conv_id_clone.clone(),
+                                                model_state: state.to_string(),
+                                                tokens_generated: stream_tokens,
+                                                tokens_per_sec: tps,
+                                                context_tokens: usage_prompt
+                                                    .unwrap_or(ctx_tokens)
+                                                    .saturating_add(stream_tokens as usize),
+                                                context_limit: effective_ctx,
+                                            },
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -1745,8 +1925,53 @@ impl AgentEngineInner {
             let _ = self.persist_conversation(&conversation).await;
             self.emit_conversation(&conversation).await;
 
-            // If no tool calls, task is complete!
+            // If no tool calls, check whether the model actually produced a response or got cut off mid-thought
             if tool_calls.is_empty() {
+                if full_content.trim().is_empty() {
+                    if empty_response_retries < 2 {
+                        empty_response_retries += 1;
+                        conversation.messages.push(ConversationMessage {
+                            id: Uuid::new_v4().to_string(),
+                            role: "user".to_string(),
+                            content: "[System: Your previous response was cut off mid-thought with no output or tool call. Keep reasoning brief and immediately emit your next tool call (split large file writes into small write_file + Append=true chunks) or your final response.]".to_string(),
+                            reasoning_content: None,
+                            created_at: Utc::now(),
+                            tool_calls: None,
+                            tool_call_id: None,
+                            tool_name: None,
+                        });
+                        conversation.updated_at = Utc::now();
+                        self.conversations
+                            .write()
+                            .await
+                            .insert(conversation_id.clone(), conversation.clone());
+                        let _ = self.persist_conversation(&conversation).await;
+                        self.emit_conversation(&conversation).await;
+                        continue;
+                    }
+                    let fallback = "⚠️ Model stopped mid-thought with no output or tool call (likely hit token/context limit). Reply `continue` or compact context.".to_string();
+                    if let Some(m) = conversation.messages.iter_mut().find(|m| m.id == assistant_msg_id) {
+                        m.content = fallback.clone();
+                    }
+                    full_content = fallback;
+                    self.conversations
+                        .write()
+                        .await
+                        .insert(conversation_id.clone(), conversation.clone());
+                    let _ = self.persist_conversation(&conversation).await;
+                    self.emit_conversation(&conversation).await;
+                }
+
+                self.emit_telemetry(AgentTelemetryEvent {
+                    conversation_id: conversation_id.clone(),
+                    model_state: "ready".to_string(),
+                    tokens_generated: 0,
+                    tokens_per_sec: 0.0,
+                    context_tokens: Self::estimate_prompt_tokens(&sys_prompt, &tool_defs, &conversation.messages),
+                    context_limit: effective_ctx,
+                })
+                .await;
+
                 let mut tasks = self.tasks.write().await;
                 if let Some(task) = tasks.get_mut(&task_id) {
                     task.status = AgentTaskStatus::Completed;
@@ -1758,6 +1983,17 @@ impl AgentEngineInner {
                 }
                 return Ok(full_content);
             }
+            empty_response_retries = 0;
+
+            self.emit_telemetry(AgentTelemetryEvent {
+                conversation_id: conversation_id.clone(),
+                model_state: "tooling".to_string(),
+                tokens_generated: 0,
+                tokens_per_sec: 0.0,
+                context_tokens: Self::estimate_prompt_tokens(&sys_prompt, &tool_defs, &conversation.messages),
+                context_limit: effective_ctx,
+            })
+            .await;
 
             // Execute each tool call
             let tool_timeout = std::time::Duration::from_secs(agent_config.tool_timeout_seconds.max(1));
@@ -1820,7 +2056,7 @@ impl AgentEngineInner {
                                         || ws_plan.as_ref().is_some_and(|p| p.is_file())
                                     {
                                         out.push_str(
-                                            "\n\n[Plan Progress Reminder: plan.md exists and has not been updated after recent code edits. If you finished a stage or task, update plan.md (mark [x] / progress) before moving on.]",
+                                            "\n\n[Plan Progress Reminder: Update plan.md and task.md NOW with edit_file to mark completed items [x] before making more code edits.]",
                                         );
                                         edits_since_plan_update = 0;
                                     }
@@ -1851,7 +2087,28 @@ impl AgentEngineInner {
             }
         }
 
-        let msg = format!("Agent completed after {} iterations (max reached)", agent_config.max_iterations);
+        let msg = format!(
+            "⚠️ Paused after {} iterations (Max Iterations limit reached). Reply `continue` to keep going, or raise Max Iterations in Settings → Agent & Preferences.",
+            effective_max_iterations
+        );
+        conversation.messages.push(ConversationMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".to_string(),
+            content: msg.clone(),
+            reasoning_content: None,
+            created_at: Utc::now(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+        });
+        conversation.updated_at = Utc::now();
+        self.conversations
+            .write()
+            .await
+            .insert(conversation_id.clone(), conversation.clone());
+        let _ = self.persist_conversation(&conversation).await;
+        self.emit_conversation(&conversation).await;
+
         let mut tasks = self.tasks.write().await;
         if let Some(task) = tasks.get_mut(&task_id) {
             task.status = AgentTaskStatus::Completed;
@@ -1875,6 +2132,27 @@ impl AgentEngineInner {
             }
         }
         Err(err)
+    }
+
+    async fn mirror_artifact_to_brain(
+        conversation_id: &str,
+        path: &str,
+        has_artifact_meta: bool,
+        content: &str,
+    ) {
+        let is_plan_or_artifact = has_artifact_meta
+            || path.ends_with("/plan.md")
+            || path.ends_with("/task.md")
+            || path.ends_with("/walkthrough.md");
+        if is_plan_or_artifact {
+            let brain_dir = Self::brain_dir(conversation_id);
+            if !path.starts_with(&brain_dir.to_string_lossy().to_string()) {
+                if let Some(fname) = std::path::Path::new(path).file_name() {
+                    let _ = tokio::fs::create_dir_all(&brain_dir).await;
+                    let _ = tokio::fs::write(brain_dir.join(fname), content).await;
+                }
+            }
+        }
     }
 
     async fn execute_tool(
@@ -1963,19 +2241,13 @@ impl AgentEngineInner {
                         self.record_file_change(conversation_id, path, orig, final_content.clone())
                             .await;
                         let has_artifact_meta = args.get("ArtifactMetadata").is_some();
-                        let is_plan_or_artifact = has_artifact_meta
-                            || path.ends_with("/plan.md")
-                            || path.ends_with("/task.md")
-                            || path.ends_with("/walkthrough.md");
-                        if is_plan_or_artifact {
-                            let brain_dir = Self::brain_dir(conversation_id);
-                            if !path.starts_with(&brain_dir.to_string_lossy().to_string()) {
-                                if let Some(fname) = std::path::Path::new(path).file_name() {
-                                    let _ = tokio::fs::create_dir_all(&brain_dir).await;
-                                    let _ = tokio::fs::write(brain_dir.join(fname), &final_content).await;
-                                }
-                            }
-                        }
+                        Self::mirror_artifact_to_brain(
+                            conversation_id,
+                            path,
+                            has_artifact_meta,
+                            &final_content,
+                        )
+                        .await;
                         let req_feedback = args
                             .get("ArtifactMetadata")
                             .and_then(|m| m.get("RequestFeedback"))
@@ -2047,6 +2319,13 @@ impl AgentEngineInner {
                 }).await {
                     Ok(_) => {
                         if let Ok(after) = tokio::fs::read_to_string(path).await {
+                            Self::mirror_artifact_to_brain(
+                                conversation_id,
+                                path,
+                                args.get("ArtifactMetadata").is_some(),
+                                &after,
+                            )
+                            .await;
                             self.record_file_change(conversation_id, path, orig, after).await;
                         }
                         format!("Edited {}", path)
@@ -2725,5 +3004,260 @@ impl AgentEngineInner {
             Ok(text) => text,
             Err(e) => format!("Error: {}", e),
         }
+    }
+
+    fn estimate_prompt_tokens(
+        sys_prompt: &str,
+        tool_defs: &[ToolDefinition],
+        messages: &[ConversationMessage],
+    ) -> usize {
+        let mut chars = sys_prompt.len();
+        if let Ok(tools_json) = serde_json::to_string(tool_defs) {
+            chars += tools_json.len();
+        }
+        for m in messages {
+            chars += m.content.len() + 32;
+            if let Some(calls) = &m.tool_calls {
+                for c in calls {
+                    chars += c.to_string().len();
+                }
+            }
+        }
+        // Conservative ~3 chars/token for code + JSON payloads
+        chars / 3
+    }
+
+    async fn emit_telemetry(&self, event: AgentTelemetryEvent) {
+        if let Some(handle) = self.app_handle.read().await.as_ref() {
+            let _ = handle.emit("agent-telemetry", event);
+        }
+    }
+
+    async fn maybe_compact_conversation(
+        &self,
+        conversation: &mut Conversation,
+        sys_prompt: &str,
+        tool_defs: &[ToolDefinition],
+        effective_ctx: u32,
+        provider_id: Option<&str>,
+        chosen_model: &str,
+    ) -> bool {
+        self.compact_conversation_with_force(
+            conversation,
+            sys_prompt,
+            tool_defs,
+            effective_ctx,
+            provider_id,
+            chosen_model,
+            false,
+        )
+        .await
+    }
+
+    async fn compact_conversation_with_force(
+        &self,
+        conversation: &mut Conversation,
+        sys_prompt: &str,
+        tool_defs: &[ToolDefinition],
+        effective_ctx: u32,
+        provider_id: Option<&str>,
+        chosen_model: &str,
+        force: bool,
+    ) -> bool {
+        if effective_ctx == 0 || conversation.messages.len() <= (if force { 4 } else { 8 }) {
+            return false;
+        }
+        let estimated = Self::estimate_prompt_tokens(sys_prompt, tool_defs, &conversation.messages);
+        let threshold = (effective_ctx as usize * 80) / 100;
+        if !force && estimated < threshold {
+            return false;
+        }
+
+        // Keep at least the last 6 messages, stepping backward so we never orphan a `tool` message
+        // from its preceding `assistant` tool_calls message.
+        let mut split_idx = conversation.messages.len().saturating_sub(6);
+        while split_idx > 0 && conversation.messages[split_idx].role == "tool" {
+            split_idx -= 1;
+        }
+        if split_idx < 2 {
+            return false;
+        }
+
+        let older = &conversation.messages[..split_idx];
+        let mut digest = String::new();
+        for m in older {
+            if m.role == "user" {
+                let snippet: String = m.content.chars().take(240).collect();
+                digest.push_str(&format!("- USER: {}\n", snippet.replace('\n', " ")));
+            } else if m.role == "assistant" && !m.content.trim().is_empty() {
+                let snippet: String = m.content.chars().take(240).collect();
+                digest.push_str(&format!("- ASSISTANT: {}\n", snippet.replace('\n', " ")));
+            } else if m.role == "tool" {
+                let name = m.tool_name.as_deref().unwrap_or("tool");
+                let snippet: String = m.content.chars().take(120).collect();
+                digest.push_str(&format!("- TOOL ({}): {}\n", name, snippet.replace('\n', " ")));
+            }
+        }
+        if digest.len() > 16000 {
+            digest.truncate(16000);
+            digest.push_str("\n...(truncated)");
+        }
+
+        let llm_summary = {
+            let req = ChatCompletionRequest {
+                model: chosen_model.to_string(),
+                messages: vec![
+                    ChatMessage {
+                        role: MessageRole::System,
+                        content: "Summarize the older conversation history concisely into: 1) User Goal & Constraints, 2) Completed Work & Modified Files, 3) Pending Next Steps. Keep file paths and symbol names exact.".to_string(),
+                        reasoning_content: None,
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                    ChatMessage {
+                        role: MessageRole::User,
+                        content: digest.clone(),
+                        reasoning_content: None,
+                        name: None,
+                        tool_calls: None,
+                        tool_call_id: None,
+                    },
+                ],
+                temperature: None,
+                max_tokens: Some(1024),
+                stream: Some(false),
+                tools: None,
+                tool_choice: None,
+                top_p: None,
+                frequency_penalty: None,
+                presence_penalty: None,
+                stop: None,
+            };
+            match self.llm_providers.chat_completion_with_provider(provider_id, req).await {
+                Ok(resp) => resp
+                    .choices
+                    .first()
+                    .map(|c| c.message.content.clone())
+                    .filter(|s| !s.trim().is_empty()),
+                Err(_) => None,
+            }
+        };
+
+        let files_list: Vec<String> = conversation
+            .files_changed
+            .iter()
+            .map(|f| f.path.clone())
+            .collect();
+        let files_note = if files_list.is_empty() {
+            String::new()
+        } else {
+            format!("\n\nModified files so far:\n- {}", files_list.join("\n- "))
+        };
+
+        let summary_body = llm_summary.unwrap_or(digest);
+        let compacted_msg = ConversationMessage {
+            id: Uuid::new_v4().to_string(),
+            role: "assistant".to_string(),
+            content: format!(
+                "[Auto-Compacted Context at ~{} / {} tokens (80% threshold, 20% remaining)]\n\n{}{}",
+                estimated, effective_ctx, summary_body, files_note
+            ),
+            reasoning_content: None,
+            created_at: Utc::now(),
+            tool_calls: None,
+            tool_call_id: None,
+            tool_name: None,
+        };
+
+        let mut new_msgs = Vec::with_capacity(1 + (conversation.messages.len() - split_idx));
+        new_msgs.push(compacted_msg);
+        new_msgs.extend(conversation.messages.drain(split_idx..));
+        conversation.messages = new_msgs;
+        conversation.updated_at = Utc::now();
+        true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn auto_compaction_triggers_at_80_percent_and_preserves_recent_tool_pairs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cfg_mgr = crate::config::ConfigManager::new_with_path(tmp.path().join("config.toml"))
+            .await
+            .unwrap();
+        let llm = crate::llm::LLMProviderManager::new_offline(cfg_mgr.clone())
+            .await
+            .unwrap();
+        let mcp = crate::mcp::MCPClientManager::new(cfg_mgr.clone()).await.unwrap();
+        let skills = crate::skills::SkillManager::new(cfg_mgr.clone()).await.unwrap();
+        let term = crate::terminal::TerminalManager::new(cfg_mgr.clone()).await.unwrap();
+        let engine = AgentEngine::new(cfg_mgr, llm, mcp, skills, term).await.unwrap();
+
+        let mut msgs = Vec::new();
+        for i in 0..10 {
+            msgs.push(ConversationMessage {
+                id: format!("u-{}", i),
+                role: "user".to_string(),
+                content: format!("Step {} {}", i, "x".repeat(400)),
+                reasoning_content: None,
+                created_at: Utc::now(),
+                tool_calls: None,
+                tool_call_id: None,
+                tool_name: None,
+            });
+            msgs.push(ConversationMessage {
+                id: format!("a-{}", i),
+                role: "assistant".to_string(),
+                content: "".to_string(),
+                reasoning_content: None,
+                created_at: Utc::now(),
+                tool_calls: Some(vec![serde_json::json!({"id":"c1","type":"function","function":{"name":"read_file","arguments":"{}"}})]),
+                tool_call_id: None,
+                tool_name: None,
+            });
+            msgs.push(ConversationMessage {
+                id: format!("t-{}", i),
+                role: "tool".to_string(),
+                content: "file contents".to_string(),
+                reasoning_content: None,
+                created_at: Utc::now(),
+                tool_calls: None,
+                tool_call_id: Some("c1".to_string()),
+                tool_name: Some("read_file".to_string()),
+            });
+        }
+
+        let mut conv = Conversation {
+            id: "conv-1".to_string(),
+            title: "Test".to_string(),
+            messages: msgs,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            system_prompt: None,
+            provider_id: None,
+            model: None,
+            workspace_path: None,
+            project_id: None,
+            worktree_mode: None,
+            worktree_paths: vec![],
+            files_changed: vec![],
+            subagents: vec![],
+            background_tasks: vec![],
+        };
+
+        // 30 messages * ~500 chars / 3 ≈ 5000 tokens; with effective_ctx = 2000 (80% = 1600), must compact
+        let compacted = engine
+            .inner
+            .maybe_compact_conversation(&mut conv, "sys", &[], 2000, None, "coder-iq1_m")
+            .await;
+        assert!(compacted, "Expected auto-compaction at >= 80% of context_length");
+        assert!(conv.messages[0].content.contains("[Auto-Compacted Context"));
+        assert!(conv.messages.len() < 12);
+        // Must not start the preserved tail with an orphaned tool result
+        assert_ne!(conv.messages[1].role, "tool");
     }
 }

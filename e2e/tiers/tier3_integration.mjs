@@ -420,6 +420,18 @@ export function getTests() {
         });
         assert.equal(slashCount, 10, 'Expected all 10 slash commands in slash picker');
 
+        // 10. Verify Model state & speed + Context fill gauges render beside composer
+        const gauges = await app.page.evaluate(() => {
+          const stateCard = document.querySelector('[aria-label="Model state and speed"]');
+          const ctxCard = document.querySelector('[aria-label="Context fill gauge"]');
+          return {
+            hasState: !!stateCard && stateCard.textContent?.includes('Model state'),
+            hasCtx: !!ctxCard && ctxCard.textContent?.includes('Context fill'),
+          };
+        });
+        assert.equal(gauges.hasState, true, 'Expected Model state and speed gauge beside composer');
+        assert.equal(gauges.hasCtx, true, 'Expected Context fill gauge beside composer');
+
         assert.assertNoPageErrors(app);
       },
     },

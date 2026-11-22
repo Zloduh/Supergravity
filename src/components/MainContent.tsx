@@ -375,6 +375,7 @@ export function MainContent() {
     pendingQuestions,
     pendingApprovals,
     pendingPlanReviews,
+    telemetry,
     sendMessage,
     regenerateLastResponse,
     cancelAgentTask,
@@ -1123,7 +1124,93 @@ export function MainContent() {
 
       {/* Composer Input Area */}
       <div className="border-t border-gray-800/80 bg-[#0d121c] p-3 sm:p-4">
-        <div className="max-w-4xl mx-auto relative">
+        {(() => {
+          const msgChars = (activeConversation?.messages || []).reduce((acc, m) => {
+            const tcChars = (m.tool_calls || []).reduce((tAcc, c) => tAcc + JSON.stringify(c).length, 0);
+            return acc + (m.content?.length || 0) + tcChars + 32;
+          }, 0);
+          const fallbackCtxTokens = Math.round(msgChars / 3);
+          const ctxTokens =
+            telemetry.contextTokens > 0 && isStreaming
+              ? telemetry.contextTokens
+              : Math.max(fallbackCtxTokens, telemetry.contextTokens > 0 && activeConversation?.messages.length ? telemetry.contextTokens : 0);
+          const selectedModelObj = activeProvider?.models.find((m) => m.id === selectedModel);
+          const ctxLimit =
+            selectedModelObj?.context_length ||
+            telemetry.contextLimit ||
+            (config.llm?.inherit_model_settings ?? true
+              ? Math.max(config.llm?.context_length || 32768, 131072)
+              : config.llm?.context_length || 32768);
+          const ctxPct = Math.min(100, Math.round((ctxTokens / Math.max(1, ctxLimit)) * 100));
+          const ctxColor =
+            ctxPct >= 80 ? '#f87171' : ctxPct >= 60 ? '#fbbf24' : '#34d399';
+          const formatK = (n: number) =>
+            n >= 1000 ? `${Math.round(n / 1000)}k` : `${n}`;
+          const formatLimitK = (n: number) =>
+            n >= 1000 ? `${Math.round(n / 1024)}K` : `${n}`;
+          const arcRadius = 26;
+          const arcCirc = 2 * Math.PI * arcRadius;
+          const arcSpan = arcCirc * 0.75; // 270-degree open arc
+          const arcFilled = arcSpan * (ctxPct / 100);
+
+          const mState = isStreaming
+            ? telemetry.modelState && telemetry.modelState !== 'ready'
+              ? telemetry.modelState
+              : streamingReasoning && !streamingContent
+                ? 'thinking'
+                : 'generating'
+            : 'ready';
+          const stateBadge =
+            mState === 'thinking'
+              ? { label: 'Thinking', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30', dot: 'bg-amber-400 animate-pulse', bar: 'bg-amber-400' }
+              : mState === 'generating'
+                ? { label: 'Generating', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', dot: 'bg-emerald-400 animate-pulse', bar: 'bg-emerald-400' }
+                : mState === 'tooling'
+                  ? { label: 'Tooling', cls: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30', dot: 'bg-indigo-400 animate-pulse', bar: 'bg-indigo-400' }
+                  : { label: 'Ready', cls: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25', dot: 'bg-emerald-400', bar: 'bg-emerald-500/50' };
+
+          return (
+            <div className="flex items-stretch justify-center gap-3 max-w-[1440px] mx-auto">
+              {/* Left: Model State & Token Speed Card */}
+              <div
+                aria-label="Model state and speed"
+                className="hidden xl:flex flex-col justify-between w-52 flex-shrink-0 rounded-xl bg-gray-950/90 border border-gray-800 p-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold text-gray-200">Model state</span>
+                  <span
+                    className={cn(
+                      'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium border',
+                      stateBadge.cls
+                    )}
+                  >
+                    <span className={cn('w-1.5 h-1.5 rounded-full', stateBadge.dot)} />
+                    {stateBadge.label}
+                  </span>
+                </div>
+                <div className="space-y-1.5">
+                  <div className="flex items-baseline justify-between text-[11px] text-gray-400">
+                    <span>{formatK(telemetry.tokensGenerated)} tok</span>
+                    <span className="font-mono text-gray-200 font-medium">
+                      {telemetry.tokensPerSec > 0
+                        ? `${telemetry.tokensPerSec.toFixed(1)} tok/s`
+                        : '— tok/s'}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-gray-800/90 overflow-hidden">
+                    <div
+                      className={cn(
+                        'h-full rounded-full transition-all duration-300',
+                        stateBadge.bar,
+                        isStreaming ? 'w-3/4 animate-pulse' : 'w-1/4'
+                      )}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Center: Composer */}
+              <div className="flex-1 min-w-0 max-w-4xl relative">
           {/* Slash Command Picker */}
           {showSlashPicker && slashItems.length > 0 && (
             <div
@@ -1374,7 +1461,51 @@ export function MainContent() {
               </div>
             </div>
           </form>
-        </div>
+              </div>
+
+              {/* Right: Context Fill Circular Gauge Card */}
+              <div
+                aria-label="Context fill gauge"
+                className="hidden xl:flex flex-col items-center justify-between w-40 flex-shrink-0 rounded-xl bg-gray-950/90 border border-gray-800 p-2.5"
+              >
+                <span className="text-[11px] font-semibold text-gray-200 self-start">
+                  Context fill
+                </span>
+                <div className="relative w-16 h-16 flex items-center justify-center">
+                  <svg className="w-16 h-16 rotate-[135deg]" viewBox="0 0 64 64">
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r={arcRadius}
+                      fill="none"
+                      stroke="#1f2937"
+                      strokeWidth="5.5"
+                      strokeLinecap="round"
+                      strokeDasharray={`${arcSpan} ${arcCirc}`}
+                    />
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r={arcRadius}
+                      fill="none"
+                      stroke={ctxColor}
+                      strokeWidth="5.5"
+                      strokeLinecap="round"
+                      strokeDasharray={`${arcFilled} ${arcCirc}`}
+                      className="transition-all duration-300"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pt-1">
+                    <span className="text-sm font-bold text-white leading-none">{ctxPct}%</span>
+                  </div>
+                </div>
+                <span className="text-[10px] text-gray-400 font-mono">
+                  {formatK(ctxTokens)} / {formatLimitK(ctxLimit)}
+                </span>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </main>
   );

@@ -180,6 +180,8 @@ pub struct ChatCompletionChunk {
     pub created: u64,
     pub model: String,
     pub choices: Vec<ChatChunkChoice>,
+    pub usage: Option<Usage>,
+    pub timings: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -231,6 +233,7 @@ pub struct LLMManagerOptions {
 pub struct LLMProviderManager {
     providers: RwLock<HashMap<String, LLMProvider>>,
     client: Client,
+    stream_client: Client,
     probe_client: Client,
     config: Arc<crate::config::ConfigManager>,
 }
@@ -274,6 +277,9 @@ impl LLMProviderManager {
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(120))
             .build()?;
+        let stream_client = Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .build()?;
         let probe_client = Client::builder()
             .connect_timeout(probe_timeout)
             .timeout(probe_timeout)
@@ -282,6 +288,7 @@ impl LLMProviderManager {
         let manager = Arc::new(Self {
             providers: RwLock::new(HashMap::new()),
             client,
+            stream_client,
             probe_client,
             config: config.clone(),
         });
@@ -846,7 +853,7 @@ impl LLMProviderManager {
         request.stream = Some(true);
 
         let url = format!("{}/chat/completions", provider.base_url.trim_end_matches('/'));
-        let mut req = self.client.post(&url).timeout(timeout).json(&request);
+        let mut req = self.stream_client.post(&url).json(&request);
 
         if let Some(api_key) = provider.api_key.as_deref().map(str::trim).filter(|k| !k.is_empty()) {
             req = req.header(AUTHORIZATION, format!("Bearer {}", api_key));
@@ -856,7 +863,14 @@ impl LLMProviderManager {
             req = req.header(key, value);
         }
 
-        let resp = req.send().await?;
+        let resp = tokio::time::timeout(timeout, req.send())
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "LLM stream timed out waiting for response headers after {}s",
+                    timeout.as_secs()
+                )
+            })??;
         if !resp.status().is_success() {
             let error_text = resp.text().await?;
             return Err(anyhow::anyhow!("LLM request failed: {}", error_text));
@@ -866,7 +880,18 @@ impl LLMProviderManager {
         use futures_util::StreamExt;
         let mut byte_buf: Vec<u8> = Vec::new();
 
-        while let Some(chunk_result) = stream.next().await {
+        loop {
+            let next_chunk = tokio::time::timeout(timeout, stream.next())
+                .await
+                .map_err(|_| {
+                    anyhow::anyhow!(
+                        "LLM stream stalled for {}s without receiving data",
+                        timeout.as_secs()
+                    )
+                })?;
+            let Some(chunk_result) = next_chunk else {
+                break;
+            };
             let chunk_bytes = chunk_result?;
             byte_buf.extend_from_slice(&chunk_bytes);
 

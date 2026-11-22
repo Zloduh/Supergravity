@@ -34,6 +34,13 @@ interface ConversationState {
   pendingQuestions: PendingQuestion[];
   pendingApprovals: PendingApproval[];
   pendingPlanReviews: PendingPlanReview[];
+  telemetry: {
+    modelState: 'ready' | 'thinking' | 'generating' | 'tooling' | string;
+    tokensGenerated: number;
+    tokensPerSec: number;
+    contextTokens: number;
+    contextLimit: number;
+  };
   loading: boolean;
   error: string | null;
 
@@ -200,6 +207,13 @@ export const useConversationStore = create<ConversationState>((set, get) => {
     pendingQuestions: [],
     pendingApprovals: [],
     pendingPlanReviews: [],
+    telemetry: {
+      modelState: 'ready',
+      tokensGenerated: 0,
+      tokensPerSec: 0,
+      contextTokens: 0,
+      contextLimit: 131072,
+    },
     loading: false,
     error: null,
 
@@ -300,6 +314,24 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         }));
       });
 
+      const un7 = await agentIpc.onAgentTelemetry((t) => {
+        set((state) => {
+          if (t.conversation_id && t.conversation_id !== state.activeConversationId) {
+            return state;
+          }
+          return {
+            telemetry: {
+              modelState: t.model_state || 'ready',
+              tokensGenerated: t.tokens_generated ?? state.telemetry.tokensGenerated,
+              tokensPerSec:
+                t.tokens_per_sec > 0 ? t.tokens_per_sec : state.telemetry.tokensPerSec,
+              contextTokens: t.context_tokens ?? state.telemetry.contextTokens,
+              contextLimit: t.context_limit || state.telemetry.contextLimit,
+            },
+          };
+        });
+      });
+
       return () => {
         stopPolling();
         un1();
@@ -308,6 +340,7 @@ export const useConversationStore = create<ConversationState>((set, get) => {
         un4();
         un5();
         un6();
+        un7();
       };
     },
 

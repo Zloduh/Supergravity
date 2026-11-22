@@ -139,3 +139,18 @@ export function onAgentPlanReview(
 ): Promise<UnlistenFn> {
   return safeListen<PendingPlanReview>('agent-plan-review', handler);
 }
+
+export interface AgentTelemetryEvent {
+  conversation_id: string;
+  model_state: 'ready' | 'thinking' | 'generating' | 'tooling' | string;
+  tokens_generated: number;
+  tokens_per_sec: number;
+  context_tokens: number;
+  context_limit: number;
+}
+
+export function onAgentTelemetry(
+  handler: (payload: AgentTelemetryEvent) => void
+): Promise<UnlistenFn> {
+  return safeListen<AgentTelemetryEvent>('agent-telemetry', handler);
+}
